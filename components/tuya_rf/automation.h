@@ -33,6 +33,11 @@ template<typename... Ts> class QueueTransmitAction : public Action<Ts...> {
 
   TEMPLATABLE_VALUE(std::vector<int32_t>, data)
 
+  // Explicit overload for brace-enclosed initializer lists.
+  // ESPHome codegen emits set_data({625, -593, ...}) for static data,
+  // but C++ cannot deduce template parameter V from an initializer_list.
+  void set_data(std::initializer_list<int32_t> list) { this->data_ = std::vector<int32_t>(list); }
+
   void play(Ts... x) override {
     auto data = this->data_.value(x...);
     this->tuya_rf_->queue_transmit(data);
