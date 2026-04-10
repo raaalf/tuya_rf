@@ -98,7 +98,7 @@ int StartRx() {
 	delay(2);  // Stabilization delay: let FIFO clear complete before RX transition
 
     CMT2300A_GoRx();
-    delay(2);  // Stabilization delay: let CMT2300A fully enter RX mode
+    delay(10);  // Stabilization delay: let CMT2300A PLL lock and fully enter RX mode
 
 	//CMT2300_IsExist()
 	int rssi=CMT2300A_GetRssiDBm();
