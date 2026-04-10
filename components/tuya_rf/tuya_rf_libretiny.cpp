@@ -121,6 +121,8 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Filter out pulses shorter than: %u us", this->filter_us_);
   ESP_LOGCONFIG(TAG, "  Signal start with a pulse between %u and %u us", this->start_pulse_min_us_, this->start_pulse_max_us_);
   ESP_LOGCONFIG(TAG, "  Signal is done after a pulse of %u us", this->end_pulse_us_);
+  ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
+  ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
     ESP_LOGCONFIG(TAG, "  Receiver disabled");
   } else {
@@ -241,6 +243,9 @@ The rf input is quite noisy, so some heavy filtering must be done:
     reception, the parameter to detect it is end_pulse_us_.
 */
 void TuyaRfComponent::loop() {
+  // Process transmit queue first
+  this->process_transmit_queue();
+
   if (this->receiver_disabled_) {
     return;
   }  

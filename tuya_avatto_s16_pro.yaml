@@ -1,0 +1,121 @@
+# Example ESPHome configuration for Avatto S16 Pro (IR+RF bridge)
+# Uses the stability-enhanced tuya_rf component with transmit queuing
+# and CMT2300A state transition delays.
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [tuya_rf]
+
+esphome:
+  name: avatto-s16-pro
+  friendly_name: "Avatto S16 Pro IR+RF"
+
+bk72xx:
+  board: cbu
+  framework:
+    version: latest
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+  # Set to DEBUG to see queue processing logs, VERBOSE for full RF signal dumps
+  level: DEBUG
+
+web_server:
+  version: 3
+
+api:
+  reboot_timeout: 0s
+  services:
+    # RF raw command via queue (recommended — prevents collisions)
+    - service: send_rf_raw
+      variables:
+        code: int[]
+      then:
+        - tuya_rf.queue_transmit:
+            receiver_id: rf
+            data: !lambda "return code;"
+
+    # IR raw command (direct, no queue needed for IR)
+    - service: send_ir_raw
+      variables:
+        code: int[]
+      then:
+        - remote_transmitter.transmit_raw:
+            transmitter_id: ir
+            carrier_frequency: 38kHz
+            code: !lambda "return code;"
+
+    # IR NEC command
+    - service: send_ir_nec
+      variables:
+        address: int
+        command: int
+        repeats: int
+      then:
+        - remote_transmitter.transmit_nec:
+            transmitter_id: ir
+            address: !lambda "return address;"
+            command: !lambda "return command;"
+            command_repeats: !lambda "return repeats;"
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+# Status LED
+output:
+  - platform: gpio
+    id: status_led
+    pin: P9
+
+# Reset button
+binary_sensor:
+  - platform: gpio
+    id: reset_button
+    pin: P23
+
+# RF component with transmit queue for stability
+tuya_rf:
+  id: rf
+  receiver_disabled: true  # Disable RX if you only send — eliminates TX/RX switching issues
+  dump: raw
+  queue_max_size: 10       # Buffer up to 10 RF commands
+  queue_delay: 200ms       # 200ms between transmissions (start here, reduce if needed)
+
+# IR transmitter
+remote_transmitter:
+  id: ir
+  pin: P7
+  carrier_duty_percent: 50%
+
+# IR receiver
+remote_receiver:
+  id: ir_receiver
+  pin:
+    number: P8
+    inverted: true
+  dump: [nec]
+
+# Toggle RF receiver on/off from HA
+switch:
+  - platform: template
+    name: "RF Receiver"
+    id: rf_receiver_switch
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    turn_on_action:
+      - tuya_rf.turn_on_receiver:
+          receiver_id: rf
+    turn_off_action:
+      - tuya_rf.turn_off_receiver:
+          receiver_id: rf
+
+# Restart button in HA
+button:
+  - platform: restart
+    name: "Restart"

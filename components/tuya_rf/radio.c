@@ -56,14 +56,16 @@ int StartTx() {
      if (RF_Init()!=0) {
         return 1;
 	}
-    CMT2300A_WriteReg(CMT2300A_CUS_SYS2,0); //???? 
+    CMT2300A_WriteReg(CMT2300A_CUS_SYS2,0); //????
     CMT2300A_ConfigGpio(CMT2300A_GPIO1_SEL_DOUT | CMT2300A_GPIO3_SEL_DIN | CMT2300A_GPIO2_SEL_INT2);
-	CMT2300A_EnableTxDin(true);    
+	CMT2300A_EnableTxDin(true);
 	CMT2300A_ConfigTxDin(CMT2300A_TX_DIN_SEL_GPIO1);
-	CMT2300A_EnableTxDinInvert(false); 
+	CMT2300A_EnableTxDinInvert(false);
 	CMT2300A_GoSleep();
 	CMT2300A_GoStby();
+	delay(2);  // Stabilization delay: let CMT2300A settle in Standby before TX transition
 	if (CMT2300A_GoTx()) {
+	    delay(2);  // Stabilization delay: let CMT2300A fully enter TX mode
         return 0;
     } else {
         return 2;
@@ -93,8 +95,10 @@ int StartRx() {
     CMT2300A_EnableFifoMerge(true);
 	CMT2300A_ClearInterruptFlags();
 	CMT2300A_ClearRxFifo();
-	
+	delay(2);  // Stabilization delay: let FIFO clear complete before RX transition
+
     CMT2300A_GoRx();
+    delay(2);  // Stabilization delay: let CMT2300A fully enter RX mode
 
 	//CMT2300_IsExist()
 	int rssi=CMT2300A_GetRssiDBm();

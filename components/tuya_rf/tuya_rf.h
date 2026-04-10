@@ -4,9 +4,15 @@
 #include "esphome/core/component.h"
 #include "globals.h"
 #include <vector>
+#include <deque>
 
 namespace esphome {
 namespace tuya_rf {
+
+struct TransmitQueueItem {
+  std::vector<int32_t> data;
+  uint32_t queued_at;
+};
 
 #if defined(USE_LIBRETINY)
 struct RemoteReceiverComponentStore {
@@ -28,7 +34,7 @@ struct RemoteReceiverComponentStore {
 #endif
 
 class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
-                        public remote_base::RemoteReceiverBase, 
+                        public remote_base::RemoteReceiverBase,
                                    public Component
 {
  public:
@@ -58,6 +64,12 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void turn_on_receiver();
   void turn_off_receiver();
 
+  // Queue management
+  void set_queue_max_size(uint32_t max_size) { this->queue_max_size_ = max_size; }
+  void set_queue_delay_ms(uint32_t delay_ms) { this->queue_delay_ms_ = delay_ms; }
+  bool queue_transmit(const std::vector<int32_t> &data);
+  void process_transmit_queue();
+
  protected:
   void send_internal(uint32_t send_times, uint32_t send_wait) override;
 
@@ -77,7 +89,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   InternalGPIOPin *mosi_pin_;
   InternalGPIOPin *csb_pin_;
   InternalGPIOPin *fcsb_pin_;
-  
+
   bool receiver_disabled_{false};
   uint32_t buffer_size_{};
   uint32_t filter_us_{50};
@@ -88,6 +100,12 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   bool transmitting_{false};
   bool receive_started_{false};
   uint32_t old_write_at_{0};
+
+  // Queue members
+  std::deque<TransmitQueueItem> transmit_queue_;
+  uint32_t queue_max_size_{10};  // Default max 10 items in queue
+  uint32_t queue_delay_ms_{100}; // Default 100ms delay between transmissions
+  uint32_t last_transmit_time_{0};
 };
 
 }  // namespace tuya_rf
