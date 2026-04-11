@@ -27,6 +27,7 @@
 extern "C" { 
 #endif
 
+int RF_Init(void);
 int StartTx(void);
 int StartRx(void);
 

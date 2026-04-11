@@ -98,6 +98,12 @@ void TuyaRfComponent::setup() {
   }
   //the buffer will be allocated the first time the receiver is enabled
 
+  // Initialize CMT2300A radio chip once at boot.
+  // StartTx()/StartRx() only switch modes — no full reinit per call.
+  if (RF_Init() != 0) {
+    ESP_LOGE(TAG, "CMT2300A initialization failed!");
+  }
+
   this->set_receiver(!this->receiver_disabled_);
 }
 
@@ -155,32 +161,18 @@ void TuyaRfComponent::space_(uint32_t usec) {
 
 void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send_wait) {
   ESP_LOGD(TAG, "Sending remote code...");
-  /*
-    for (int32_t item : this->temp_.get_data()) {
-      if (item > 0) {
-        const auto length = uint32_t(item);
-        ESP_LOGD(TAG, "pulse %d",length);
-      } else {
-        const auto length = uint32_t(-item);
-        ESP_LOGD(TAG, "space %d",length);
-      }
-    }
-*/
-  
-  InterruptLock lock;
-  
+
   this->transmitting_=true;
   this->RemoteTransmitterBase::pin_->digital_write(false);
 
+  // StartTx runs WITHOUT InterruptLock — it does SPI communication and
+  // polls AutoSwitchStatus which needs working timers (millis/micros).
+  // With interrupts disabled, the timeout loop behaved unpredictably.
   int res=StartTx();
   switch(res) {
     case 0:
       //ESP_LOGD(TAG,"StartTx ok");
       break;
-    case 1:
-      ESP_LOGE(TAG,"Error Rf_Init");
-      this->transmitting_=false;
-      return;
     case 2:
       ESP_LOGE(TAG,"Error go tx");
       this->transmitting_=false;
@@ -188,44 +180,48 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     default:
       ESP_LOGE(TAG,"Unknown error %d",res);
       this->transmitting_=false;
-      return;      
+      return;
   }
-  
-  this->RemoteTransmitterBase::pin_->digital_write(true);
 
+  this->RemoteTransmitterBase::pin_->digital_write(true);
   this->target_time_ = 0;
-  //there's an extra delay somewhere, maybe the first call to get_data()
-  //I don't think the timing of the leading space is  critical though
-  this->space_(4700-2200);
-  for (uint32_t i = 0; i < send_times; i++) {
-    //InterruptLock lock;
-    for (int32_t item : this->RemoteTransmitterBase::temp_.get_data()) {
-      if (item > 0) {
-        const auto length = uint32_t(item);
-        this->mark_(length);
-      } else {
-        const auto length = uint32_t(-item);
-        this->space_(length);
+
+  {
+    // InterruptLock ONLY for timing-critical RF bit-bang.
+    // mark_() and space_() use busy-loop microsecond timing that
+    // must not be disrupted by ISRs.
+    InterruptLock lock;
+
+    this->space_(4700-2200);
+    for (uint32_t i = 0; i < send_times; i++) {
+      for (int32_t item : this->RemoteTransmitterBase::temp_.get_data()) {
+        if (item > 0) {
+          const auto length = uint32_t(item);
+          this->mark_(length);
+        } else {
+          const auto length = uint32_t(-item);
+          this->space_(length);
+        }
+        App.feed_wdt();
       }
-      App.feed_wdt();
+      if (i + 1 < send_times && send_wait>0)
+        this->space_(send_wait);
     }
-    if (i + 1 < send_times && send_wait>0)
-      this->space_(send_wait);
-  }
-  this->space_(2000);
-  this->await_target_time_();
-  
+    this->space_(2000);
+    this->await_target_time_();
+  }  // InterruptLock released — timers work again for mode switching below
+
   this->transmitting_=false;
   if (this->receiver_disabled_) {
     if(CMT2300A_GoStby()) {
       //ESP_LOGD(TAG,"go stby ok");
     } else {
       ESP_LOGE(TAG,"go stby error");
-    } 
+    }
   } else {
     //Go back to rx mode
     StartRx();
-  } 
+  }
 }
 
 /*
