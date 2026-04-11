@@ -53,6 +53,9 @@ int RF_Init(void)
 }
 
 int StartTx() {
+    if (RF_Init()!=0) {
+        return 1;
+    }
     CMT2300A_WriteReg(CMT2300A_CUS_SYS2,0);
     CMT2300A_ConfigGpio(CMT2300A_GPIO1_SEL_DOUT | CMT2300A_GPIO3_SEL_DIN | CMT2300A_GPIO2_SEL_INT2);
 	CMT2300A_EnableTxDin(true);
@@ -72,6 +75,10 @@ int StartTx() {
  
 
 int StartRx() {
+    if (RF_Init()!=0) {
+        return 1;
+    }
+
     CMT2300A_ConfigGpio (CMT2300A_GPIO1_SEL_INT1 | CMT2300A_GPIO2_SEL_INT2 | CMT2300A_GPIO3_SEL_DOUT);
 	CMT2300A_ConfigInterrupt(CMT2300A_INT_SEL_TX_DONE, CMT2300A_INT_SEL_PKT_OK);
 	CMT2300A_EnableInterrupt(CMT2300A_MASK_TX_DONE_EN | CMT2300A_MASK_PKT_DONE_EN);

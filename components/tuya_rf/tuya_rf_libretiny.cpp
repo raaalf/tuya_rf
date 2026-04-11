@@ -173,6 +173,10 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     case 0:
       //ESP_LOGD(TAG,"StartTx ok");
       break;
+    case 1:
+      ESP_LOGE(TAG,"Error Rf_Init");
+      this->transmitting_=false;
+      return;
     case 2:
       ESP_LOGE(TAG,"Error go tx");
       this->transmitting_=false;
