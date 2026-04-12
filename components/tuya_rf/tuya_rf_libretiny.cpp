@@ -52,7 +52,7 @@ void TuyaRfComponent::set_receiver(bool on) {
     ESP_LOGD(TAG, "starting receiver");
     auto &s = this->store_;
     if (s.buffer==NULL) {
-      ESP_LOGD(TAG,"first time starting the receiver, allocating buffer");
+      ESP_LOGD(TAG,"allocating receiver buffer");
       s.buffer = new uint32_t[s.buffer_size];
       void *buf = (void *) s.buffer;
       memset(buf, 0, s.buffer_size * sizeof(uint32_t));
@@ -104,7 +104,11 @@ void TuyaRfComponent::setup() {
     // Make sure divisible by two. This way, we know that every 0bxxx0 index is a space and every 0bxxx1 index is a mark
     s.buffer_size++;
   }
-  //the buffer will be allocated the first time the receiver is enabled
+  if (s.buffer==NULL) {
+    s.buffer = new uint32_t[s.buffer_size];
+    void *buf = (void *) s.buffer;
+    memset(buf, 0, s.buffer_size * sizeof(uint32_t));
+  }
 
   // Initialize CMT2300A radio chip once at boot.
   // StartTx()/StartRx() only switch modes — no full reinit per call.
@@ -147,6 +151,13 @@ void TuyaRfComponent::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  Receiver enabled");
   }
+}
+
+void TuyaRfComponent::log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us) {
+  const int rssi_dbm = CMT2300A_GetRssiDBm();
+  ESP_LOGD(TAG, "RF stats: event=%s accepted=%u rejected=%u pulses=%u duration=%u us start=%u us rssi=%d dBm",
+           event, this->received_frames_, this->rejected_frames_, pulses, duration_us,
+           this->receive_start_pulse_us_, rssi_dbm);
 }
 
 void TuyaRfComponent::await_target_time_() {
@@ -286,6 +297,9 @@ void TuyaRfComponent::loop() {
       this->rejected_frames_++;
       ESP_LOGW(TAG, "RF frame rejected: duration=%u us exceeds max_frame_duration=%u us (dist=%u, rejected=%u)",
                frame_duration_us, this->max_frame_duration_us_, dist, this->rejected_frames_);
+      if (this->rejected_frames_ % 10 == 0) {
+        this->log_frame_stats_("reject-duration", dist, frame_duration_us);
+      }
       receive_started_=false;
       s.buffer_read_at = write_at;
       old_write_at_ = write_at;
@@ -294,9 +308,13 @@ void TuyaRfComponent::loop() {
   }
 
   if (receive_started_ && dist > this->max_pulses_) {
+    const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
     this->rejected_frames_++;
     ESP_LOGW(TAG, "RF frame rejected: buffered pulses=%u exceeds max_pulses=%u (rejected=%u)",
              dist, this->max_pulses_, this->rejected_frames_);
+    if (this->rejected_frames_ % 10 == 0) {
+      this->log_frame_stats_("reject-buffered-pulses", dist, frame_duration_us);
+    }
     receive_started_=false;
     s.buffer_read_at = write_at;
     old_write_at_ = write_at;
@@ -305,8 +323,12 @@ void TuyaRfComponent::loop() {
 
   //stop the reception if the end pulse never arrives
   if (receive_started_ && dist >= s.buffer_size - 5) {
+    const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
     this->rejected_frames_++;
     ESP_LOGW(TAG, "RF frame rejected: RX buffer nearly full (dist=%u, rejected=%u)", dist, this->rejected_frames_);
+    if (this->rejected_frames_ % 10 == 0) {
+      this->log_frame_stats_("reject-buffer-full", dist, frame_duration_us);
+    }
     receive_started_=false;
     #if 0
     uint32_t prev = s.buffer_read_at;
@@ -370,9 +392,13 @@ void TuyaRfComponent::loop() {
         }
       } else if (receive_started_ && diff>=this->max_pause_us_) {
         if (diff > this->max_frame_duration_us_) {
+          const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
           this->rejected_frames_++;
           ESP_LOGW(TAG, "RF frame rejected: segment=%u us exceeds max_frame_duration=%u us (possible stale edge, rejected=%u)",
                    diff, this->max_frame_duration_us_, this->rejected_frames_);
+          if (this->rejected_frames_ % 10 == 0) {
+            this->log_frame_stats_("reject-stale-segment", dist, frame_duration_us);
+          }
           receive_started_=false;
           s.buffer_read_at=write_at;
           old_write_at_=write_at;
@@ -388,6 +414,10 @@ void TuyaRfComponent::loop() {
         this->rejected_frames_++;
         ESP_LOGD(TAG, "RF frame rejected: pause=%u us exceeds max_pause=%u us (rejected=%u)",
                  diff, this->max_pause_us_, this->rejected_frames_);
+        if (this->rejected_frames_ % 10 == 0) {
+          const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
+          this->log_frame_stats_("reject-pause", dist, frame_duration_us);
+        }
         receive_started_=false;
       }
       if (!receive_started_) {
@@ -439,6 +469,9 @@ void TuyaRfComponent::loop() {
     ESP_LOGD(TAG, "RF frame rejected: pulses=%u below min_pulses=%u (start=%u us, end=%s/%u us, duration=%u us, rejected=%u)",
              pulse_count, this->min_pulses_, this->receive_start_pulse_us_, end_reason, end_marker_us,
              frame_duration_us, this->rejected_frames_);
+    if (this->rejected_frames_ % 10 == 0) {
+      this->log_frame_stats_("reject-short", pulse_count, frame_duration_us);
+    }
     s.buffer_read_at = new_write_at;
     old_write_at_ = new_write_at;
     return;
@@ -448,6 +481,9 @@ void TuyaRfComponent::loop() {
     ESP_LOGD(TAG, "RF frame rejected: pulses=%u above max_pulses=%u (start=%u us, end=%s/%u us, duration=%u us, rejected=%u)",
              pulse_count, this->max_pulses_, this->receive_start_pulse_us_, end_reason, end_marker_us,
              frame_duration_us, this->rejected_frames_);
+    if (this->rejected_frames_ % 10 == 0) {
+      this->log_frame_stats_("reject-long", pulse_count, frame_duration_us);
+    }
     s.buffer_read_at = new_write_at;
     old_write_at_ = new_write_at;
     return;
@@ -473,6 +509,7 @@ void TuyaRfComponent::loop() {
   ESP_LOGD(TAG, "RF frame accepted #%u: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, rejected=%u",
            this->received_frames_, pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us,
            frame_duration_us, this->rejected_frames_);
+  this->log_frame_stats_("accept", pulse_count, frame_duration_us);
 
   this->call_listeners_dumpers_();
 }

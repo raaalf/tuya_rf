@@ -84,6 +84,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
 
   void await_target_time_();
   void set_receiver(bool on);
+  void log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us);
   uint32_t target_time_;
 #if defined(USE_LIBRETINY)
   RemoteReceiverComponentStore store_;
