@@ -185,24 +185,6 @@ uint32_t TuyaRfComponent::candidate_pulse_count_(uint32_t candidate_end) const {
   return 1 + (s.buffer_size + candidate_end - first) % s.buffer_size;
 }
 
-uint32_t TuyaRfComponent::frame_hash_() const {
-  const size_t size = this->RemoteReceiverBase::temp_.size();
-  const size_t raw_size = size == 0 ? 0 : size - 1;
-  uint32_t hash = 2166136261UL;
-
-  for (size_t i = 0; i < raw_size; i++) {
-    const int32_t value = this->RemoteReceiverBase::temp_[i];
-    const uint32_t magnitude = value < 0 ? static_cast<uint32_t>(-static_cast<int64_t>(value)) : static_cast<uint32_t>(value);
-    const uint32_t bucket = (magnitude + 125U) / 250U;
-    const uint32_t token = (value < 0 ? 0x80000000UL : 0UL) | (bucket & 0x7FFFFFFFUL);
-    hash ^= token;
-    hash *= 16777619UL;
-  }
-  hash ^= static_cast<uint32_t>(raw_size);
-  hash *= 16777619UL;
-  return hash;
-}
-
 void TuyaRfComponent::await_target_time_() {
   const uint32_t current_time = micros();
   if (this->target_time_ == 0) {
@@ -338,6 +320,17 @@ void TuyaRfComponent::loop() {
   if (receive_started_ && receive_start_time_ != 0) {
     const uint32_t frame_duration_us = now - receive_start_time_;
     if (frame_duration_us > this->max_frame_duration_us_) {
+      if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
+          now - this->last_emit_time_ < this->dedupe_window_us_) {
+        ESP_LOGD(TAG, "RF frame duplicate tail suppressed: duration=%u us exceeds max_frame_duration=%u us, dist=%u, start=%u us, since_last=%u us",
+                 frame_duration_us, this->max_frame_duration_us_, dist, this->receive_start_pulse_us_,
+                 now - this->last_emit_time_);
+        this->last_emit_time_ = now;
+        receive_started_=false;
+        s.buffer_read_at = write_at;
+        old_write_at_ = write_at;
+        return;
+      }
       this->rejected_frames_++;
       ESP_LOGW(TAG, "RF frame rejected: duration=%u us exceeds max_frame_duration=%u us (dist=%u, rejected=%u)",
                frame_duration_us, this->max_frame_duration_us_, dist, this->rejected_frames_);
@@ -575,19 +568,27 @@ void TuyaRfComponent::loop() {
   s.buffer_read_at = (s.buffer_size + s.buffer_read_at - 1) % s.buffer_size;
   this->RemoteReceiverBase::temp_.push_back(end_marker_us * multiplier);
 
-  const uint32_t frame_hash = this->frame_hash_();
+  const uint32_t duration_delta = frame_duration_us > this->last_frame_duration_us_
+                                      ? frame_duration_us - this->last_frame_duration_us_
+                                      : this->last_frame_duration_us_ - frame_duration_us;
+  const uint32_t duration_tolerance = this->last_frame_duration_us_ / 10 > 5000
+                                          ? this->last_frame_duration_us_ / 10
+                                          : 5000;
+  const uint32_t pulse_count_delta = pulse_count > this->last_frame_pulses_
+                                         ? pulse_count - this->last_frame_pulses_
+                                         : this->last_frame_pulses_ - pulse_count;
   if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
       now - this->last_emit_time_ < this->dedupe_window_us_ &&
-      pulse_count == this->last_frame_pulses_ && frame_hash == this->last_frame_hash_) {
-    ESP_LOGD(TAG, "RF frame duplicate suppressed: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, since_last=%u us",
+      pulse_count_delta <= 2 && duration_delta <= duration_tolerance) {
+    ESP_LOGD(TAG, "RF frame duplicate suppressed: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, since_last=%u us, pulse_delta=%u, duration_delta=%u us",
              pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us, frame_duration_us,
-             now - this->last_emit_time_);
+             now - this->last_emit_time_, pulse_count_delta, duration_delta);
     this->last_emit_time_ = now;
     return;
   }
   this->last_emit_time_ = now;
   this->last_frame_pulses_ = pulse_count;
-  this->last_frame_hash_ = frame_hash;
+  this->last_frame_duration_us_ = frame_duration_us;
 
   this->received_frames_++;
   ESP_LOGD(TAG, "RF frame accepted #%u: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, rejected=%u",
