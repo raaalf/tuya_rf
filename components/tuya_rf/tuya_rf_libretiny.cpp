@@ -269,6 +269,9 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank: %s, tx_power=%d dBm",
              this->tx_profile_868_ == TUYA_RF_TX_PROFILE_868_RFPDK ? "RFPDK profile" : "Ahoy/OpenDTU profile",
              this->tx_power_868_dbm_);
+    if (this->tx_profile_868_ == TUYA_RF_TX_PROFILE_868_RFPDK && this->tx_power_868_dbm_ == 20) {
+      ESP_LOGW(TAG, "RFPDK 868 profile with 20 dBm uses the Ahoy/OpenDTU PA override; test RFPDK with 13 dBm first");
+    }
   }
 
   const auto &data = this->RemoteTransmitterBase::temp_.get_data();
@@ -399,9 +402,11 @@ void TuyaRfComponent::loop() {
     if (frame_duration_us > this->max_frame_duration_us_) {
       if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
           now - this->last_emit_time_ < this->dedupe_window_us_) {
-        ESP_LOGD(TAG, "RF frame duplicate tail suppressed: duration=%u us exceeds max_frame_duration=%u us, dist=%u, start=%u us, since_last=%u us",
+        const uint32_t last_gap_us = now - s.buffer[write_at];
+        const bool open_segment_is_pulse = ((write_at + 1) % s.buffer_size) % 2 == 0;
+        ESP_LOGD(TAG, "RF frame duplicate tail suppressed: duration=%u us exceeds max_frame_duration=%u us, dist=%u, start=%u us, last_gap=%u us, open=%s, since_last=%u us",
                  frame_duration_us, this->max_frame_duration_us_, dist, this->receive_start_pulse_us_,
-                 now - this->last_emit_time_);
+                 last_gap_us, open_segment_is_pulse ? "pulse" : "space", now - this->last_emit_time_);
         this->last_emit_time_ = now;
         receive_started_=false;
         s.buffer_read_at = write_at;
@@ -425,8 +430,11 @@ void TuyaRfComponent::loop() {
     const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
     if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
         now - this->last_emit_time_ < this->dedupe_window_us_) {
-      ESP_LOGD(TAG, "RF frame duplicate tail suppressed: buffered pulses=%u exceeds max_pulses=%u, start=%u us, duration=%u us, since_last=%u us",
-               dist, this->max_pulses_, this->receive_start_pulse_us_, frame_duration_us, now - this->last_emit_time_);
+      const uint32_t last_gap_us = now - s.buffer[write_at];
+      const bool open_segment_is_pulse = ((write_at + 1) % s.buffer_size) % 2 == 0;
+      ESP_LOGD(TAG, "RF frame duplicate tail suppressed: buffered pulses=%u exceeds max_pulses=%u, start=%u us, duration=%u us, last_gap=%u us, open=%s, since_last=%u us",
+               dist, this->max_pulses_, this->receive_start_pulse_us_, frame_duration_us, last_gap_us,
+               open_segment_is_pulse ? "pulse" : "space", now - this->last_emit_time_);
       this->last_emit_time_ = now;
       receive_started_=false;
       s.buffer_read_at = write_at;
