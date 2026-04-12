@@ -91,7 +91,7 @@ void TuyaRfComponent::set_frequency_mhz(uint16_t frequency_mhz) {
 
 void TuyaRfComponent::set_receiver(bool on) {
   if (on) {
-    ESP_LOGD(TAG, "starting receiver");
+    ESP_LOGD(TAG, "starting receiver at %u MHz", static_cast<unsigned>(this->frequency_mhz_));
     auto &s = this->store_;
     if (s.buffer==NULL) {
       ESP_LOGD(TAG,"allocating receiver buffer");
@@ -263,6 +263,9 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   const uint16_t frequency_mhz = this->next_transmit_frequency_mhz_ != 0 ? this->next_transmit_frequency_mhz_ : this->frequency_mhz_;
   this->next_transmit_frequency_mhz_ = 0;
   ESP_LOGD(TAG, "Transmit frequency: %u MHz", frequency_mhz);
+  if (frequency_mhz == 868) {
+    ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank");
+  }
   int res=StartTx(frequency_mhz);
   switch(res) {
     case 0:

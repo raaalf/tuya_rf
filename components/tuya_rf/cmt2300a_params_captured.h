@@ -159,8 +159,7 @@ const uint8_t g_cmt2300aFrequencyBank315[CMT2300A_FREQUENCY_BANK_SIZE] = {
 };
 
 /* [Frequency Bank 868.000 MHz]
- * Taken from a CMOSTEK RFPDK 1.50 export. Only the frequency bank is used here;
- * data-rate/baseband/TX banks stay with the direct raw configuration.
+ * Taken from a CMOSTEK RFPDK 1.50 export.
  */
 const uint8_t g_cmt2300aFrequencyBank868[CMT2300A_FREQUENCY_BANK_SIZE] = {
  /* 0x18 */   0x42,
@@ -245,6 +244,24 @@ const uint8_t g_cmt2300aTxBank[CMT2300A_TX_BANK_SIZE] = {
  /* 0x5B */   0x00,
  /* 0x5C */   0x37, //0x1F,  //-> 2D
  /* 0x5D */   0x0a, //0x04,  //-> 07 
+ /* 0x5E */   0x3F,
+ /* 0x5F */   0x7F,
+};
+
+/* [Tx Bank 868.000 MHz]
+ * Taken from the same CMOSTEK RFPDK 1.50 export as the 868 MHz frequency bank.
+ * Keep the data-rate and baseband banks unchanged for the direct raw signal path.
+ */
+const uint8_t g_cmt2300aTxBank868[CMT2300A_TX_BANK_SIZE] = {
+ /* 0x55 */   0x50,
+ /* 0x56 */   0x93,
+ /* 0x57 */   0x01,
+ /* 0x58 */   0x00,
+ /* 0x59 */   0x42,
+ /* 0x5A */   0xB0,
+ /* 0x5B */   0x00,
+ /* 0x5C */   0x42,
+ /* 0x5D */   0x0C,
  /* 0x5E */   0x3F,
  /* 0x5F */   0x7F,
 };

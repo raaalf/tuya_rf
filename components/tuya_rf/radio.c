@@ -24,6 +24,7 @@
 #include <stddef.h>
 
 static uint16_t g_current_frequency_mhz = 433;
+static uint16_t g_current_tx_bank_frequency_mhz = 433;
 
 static const uint8_t *RF_GetFrequencyBank(uint16_t frequency_mhz)
 {
@@ -55,6 +56,24 @@ static int RF_ConfigFrequencyBank(uint16_t frequency_mhz)
     return 0;
 }
 
+static int RF_ConfigTxBank(uint16_t frequency_mhz)
+{
+    const uint8_t *tx_bank = g_cmt2300aTxBank;
+    uint16_t tx_bank_frequency_mhz = 433;
+    if (frequency_mhz == 868) {
+        tx_bank = g_cmt2300aTxBank868;
+        tx_bank_frequency_mhz = 868;
+    }
+    if (g_current_tx_bank_frequency_mhz == tx_bank_frequency_mhz) {
+        return 0;
+    }
+    if (!CMT2300A_ConfigRegBank(CMT2300A_TX_BANK_ADDR, tx_bank, CMT2300A_TX_BANK_SIZE)) {
+        return 1;
+    }
+    g_current_tx_bank_frequency_mhz = tx_bank_frequency_mhz;
+    return 0;
+}
+
 int RF_SetFrequency(uint16_t frequency_mhz)
 {
     if (!CMT2300A_GoStby()) {
@@ -78,6 +97,7 @@ int RF_Init(void)
     CMT2300A_ConfigRegBank(CMT2300A_BASEBAND_BANK_ADDR  , g_cmt2300aBasebandBank  , CMT2300A_BASEBAND_BANK_SIZE  );
     CMT2300A_ConfigRegBank(CMT2300A_TX_BANK_ADDR        , g_cmt2300aTxBank        , CMT2300A_TX_BANK_SIZE        );
     g_current_frequency_mhz = 433;
+    g_current_tx_bank_frequency_mhz = 433;
     
     // xosc_aac_code[2:0] = 2
     tmp = (~0x07) & CMT2300A_ReadReg(CMT2300A_CUS_CMT10);
@@ -101,6 +121,10 @@ int StartTx(uint16_t frequency_mhz) {
     int freq_res = RF_ConfigFrequencyBank(frequency_mhz);
     if (freq_res != 0) {
         return freq_res;
+    }
+    int tx_bank_res = RF_ConfigTxBank(frequency_mhz);
+    if (tx_bank_res != 0) {
+        return tx_bank_res;
     }
     CMT2300A_WriteReg(CMT2300A_CUS_SYS2,0);
     CMT2300A_ConfigGpio(CMT2300A_GPIO1_SEL_DOUT | CMT2300A_GPIO3_SEL_DIN | CMT2300A_GPIO2_SEL_INT2);
