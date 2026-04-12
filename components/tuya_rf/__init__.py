@@ -33,6 +33,8 @@ CONF_QUEUE_MAX_SIZE = "queue_max_size"
 CONF_QUEUE_DELAY = "queue_delay"
 CONF_DATA = "data"
 CONF_SINGLE_RAW_DUMP = "single_raw_dump"
+CONF_ACCEPT_ON_RESTART = "accept_on_restart"
+CONF_DEDUPE_WINDOW = "dedupe_window"
 
 from esphome.core import CORE, TimePeriod
 
@@ -199,6 +201,11 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
                 cv.Range(max=TimePeriod(milliseconds=10000)),
             ),
             cv.Optional(CONF_SINGLE_RAW_DUMP, default=True): cv.boolean,
+            cv.Optional(CONF_ACCEPT_ON_RESTART, default=True): cv.boolean,
+            cv.Optional(CONF_DEDUPE_WINDOW, default="300ms"): cv.All(
+                cv.positive_time_period_microseconds,
+                cv.Range(max=TimePeriod(microseconds=4294967295)),
+            ),
         }
     ).extend(cv.COMPONENT_SCHEMA)
 )
@@ -265,4 +272,6 @@ async def to_code(config):
     cg.add(var.set_max_frame_duration_us(config[CONF_MAX_FRAME_DURATION]))
     cg.add(var.set_queue_max_size(config[CONF_QUEUE_MAX_SIZE]))
     cg.add(var.set_queue_delay_ms(config[CONF_QUEUE_DELAY]))
+    cg.add(var.set_accept_on_restart(config[CONF_ACCEPT_ON_RESTART]))
+    cg.add(var.set_dedupe_window_us(config[CONF_DEDUPE_WINDOW]))
     validate_pulses(config)

@@ -146,6 +146,8 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Maximum frame pulses: %u", this->max_pulses_);
   ESP_LOGCONFIG(TAG, "  Maximum frame duration: %u us", this->max_frame_duration_us_);
   ESP_LOGCONFIG(TAG, "  Single-line raw dump: %s", YESNO(this->single_raw_dump_));
+  ESP_LOGCONFIG(TAG, "  Accept previous frame on repeated start: %s", YESNO(this->accept_on_restart_));
+  ESP_LOGCONFIG(TAG, "  Dedupe accepted frames within: %u us", this->dedupe_window_us_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
@@ -175,6 +177,12 @@ void TuyaRfComponent::log_raw_frame_() {
     raw += std::to_string(this->RemoteReceiverBase::temp_[i]);
   }
   ESP_LOGI(RAW_TAG, "%s", raw.c_str());
+}
+
+uint32_t TuyaRfComponent::candidate_pulse_count_(uint32_t candidate_end) const {
+  auto &s = this->store_;
+  const uint32_t first = (s.buffer_read_at + 1) % s.buffer_size;
+  return 1 + (s.buffer_size + candidate_end - first) % s.buffer_size;
 }
 
 void TuyaRfComponent::await_target_time_() {
@@ -395,6 +403,19 @@ void TuyaRfComponent::loop() {
           } else if (diff<this->start_pulse_max_us_) {
             //it's a new start pulse, discard old data and start again
             if (receive_started_) {
+              const uint32_t candidate_pulses = this->candidate_pulse_count_(prev);
+              const uint32_t candidate_duration_us = receive_start_time_ == 0 ? 0 : s.buffer[prev] - receive_start_time_;
+              if (this->accept_on_restart_ && candidate_pulses >= this->min_pulses_ &&
+                  candidate_pulses <= this->max_pulses_ &&
+                  candidate_duration_us <= this->max_frame_duration_us_) {
+                receive_end=true;
+                end_marker_us=this->frame_gap_us_;
+                end_reason="restart boundary";
+                ESP_LOGD(TAG, "RF frame accepted before restart: pulses=%u, duration=%u us, next_start=%u us",
+                         candidate_pulses, candidate_duration_us, diff);
+                new_write_at=prev;
+                break;
+              }
               ESP_LOGD(TAG, "RF frame restart: new start pulse=%u us", diff);
             } else {
               ESP_LOGD(TAG, "RF frame start: pulse=%u us", diff);
@@ -527,6 +548,14 @@ void TuyaRfComponent::loop() {
            this->received_frames_, pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us,
            frame_duration_us, this->rejected_frames_);
   this->log_frame_stats_("accept", pulse_count, frame_duration_us);
+  if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
+      now - this->last_emit_time_ < this->dedupe_window_us_) {
+    ESP_LOGD(TAG, "RF frame suppressed as duplicate: pulses=%u, duration=%u us, since_last=%u us",
+             pulse_count, frame_duration_us, now - this->last_emit_time_);
+    this->last_emit_time_ = now;
+    return;
+  }
+  this->last_emit_time_ = now;
   if (this->single_raw_dump_) {
     this->log_raw_frame_();
   }

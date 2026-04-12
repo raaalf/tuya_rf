@@ -68,6 +68,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_max_pulses(uint32_t max_pulses) { this->max_pulses_ = max_pulses; }
   void set_max_frame_duration_us(uint32_t max_frame_duration_us) { this->max_frame_duration_us_ = max_frame_duration_us; }
   void set_single_raw_dump(bool single_raw_dump) { this->single_raw_dump_ = single_raw_dump; }
+  void set_accept_on_restart(bool accept_on_restart) { this->accept_on_restart_ = accept_on_restart; }
+  void set_dedupe_window_us(uint32_t dedupe_window_us) { this->dedupe_window_us_ = dedupe_window_us; }
   void turn_on_receiver();
   void turn_off_receiver();
 
@@ -88,6 +90,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_receiver(bool on);
   void log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us);
   void log_raw_frame_();
+  uint32_t candidate_pulse_count_(uint32_t candidate_end) const;
   uint32_t target_time_;
 #if defined(USE_LIBRETINY)
   RemoteReceiverComponentStore store_;
@@ -111,6 +114,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint32_t max_pulses_{200};
   uint32_t max_frame_duration_us_{250000};
   bool single_raw_dump_{false};
+  bool accept_on_restart_{true};
+  uint32_t dedupe_window_us_{300000};
 
   bool transmitting_{false};
   bool receive_started_{false};
@@ -119,6 +124,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint32_t receive_start_pulse_us_{0};
   uint32_t received_frames_{0};
   uint32_t rejected_frames_{0};
+  uint32_t last_emit_time_{0};
 
   // Queue members
   std::deque<TransmitQueueItem> transmit_queue_;
