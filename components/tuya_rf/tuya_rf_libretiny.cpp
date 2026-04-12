@@ -157,8 +157,10 @@ void TuyaRfComponent::dump_config() {
   }
 }
 
-void TuyaRfComponent::log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us) {
-  const int rssi_dbm = CMT2300A_GetRssiDBm();
+void TuyaRfComponent::log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us, int rssi_dbm) {
+  if (rssi_dbm == 127) {
+    rssi_dbm = CMT2300A_GetRssiDBm();
+  }
   ESP_LOGD(TAG, "RF stats: event=%s accepted=%u rejected=%u pulses=%u duration=%u us start=%u us rssi=%d dBm",
            event, this->received_frames_, this->rejected_frames_, pulses, duration_us,
            this->receive_start_pulse_us_, rssi_dbm);
@@ -568,6 +570,9 @@ void TuyaRfComponent::loop() {
   s.buffer_read_at = (s.buffer_size + s.buffer_read_at - 1) % s.buffer_size;
   this->RemoteReceiverBase::temp_.push_back(end_marker_us * multiplier);
 
+  const int rssi_dbm = CMT2300A_GetRssiDBm();
+  const bool in_dedupe_window = this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
+                                now - this->last_emit_time_ < this->dedupe_window_us_;
   const uint32_t duration_delta = frame_duration_us > this->last_frame_duration_us_
                                       ? frame_duration_us - this->last_frame_duration_us_
                                       : this->last_frame_duration_us_ - frame_duration_us;
@@ -577,24 +582,31 @@ void TuyaRfComponent::loop() {
   const uint32_t pulse_count_delta = pulse_count > this->last_frame_pulses_
                                          ? pulse_count - this->last_frame_pulses_
                                          : this->last_frame_pulses_ - pulse_count;
-  if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
-      now - this->last_emit_time_ < this->dedupe_window_us_ &&
-      pulse_count_delta <= 2 && duration_delta <= duration_tolerance) {
+  if (in_dedupe_window && pulse_count_delta <= 2 && duration_delta <= duration_tolerance) {
     ESP_LOGD(TAG, "RF frame duplicate suppressed: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, since_last=%u us, pulse_delta=%u, duration_delta=%u us",
              pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us, frame_duration_us,
              now - this->last_emit_time_, pulse_count_delta, duration_delta);
     this->last_emit_time_ = now;
     return;
   }
+  if (in_dedupe_window && this->last_frame_rssi_dbm_ > -120 &&
+      rssi_dbm + 25 < this->last_frame_rssi_dbm_) {
+    ESP_LOGD(TAG, "RF frame weak tail suppressed: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, rssi=%d dBm, last_rssi=%d dBm, since_last=%u us",
+             pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us, frame_duration_us, rssi_dbm,
+             this->last_frame_rssi_dbm_, now - this->last_emit_time_);
+    this->last_emit_time_ = now;
+    return;
+  }
   this->last_emit_time_ = now;
   this->last_frame_pulses_ = pulse_count;
   this->last_frame_duration_us_ = frame_duration_us;
+  this->last_frame_rssi_dbm_ = rssi_dbm;
 
   this->received_frames_++;
   ESP_LOGD(TAG, "RF frame accepted #%u: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, rejected=%u",
            this->received_frames_, pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us,
            frame_duration_us, this->rejected_frames_);
-  this->log_frame_stats_("accept", pulse_count, frame_duration_us);
+  this->log_frame_stats_("accept", pulse_count, frame_duration_us, rssi_dbm);
   if (this->single_raw_dump_) {
     this->log_raw_frame_();
   }
