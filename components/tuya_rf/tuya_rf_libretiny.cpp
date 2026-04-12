@@ -8,6 +8,7 @@ namespace esphome {
 namespace tuya_rf {
 
 static const char *const TAG = "tuya_rf";
+static const char *const RAW_TAG = "tuya_rf.raw";
 
 void IRAM_ATTR HOT RemoteReceiverComponentStore::gpio_intr(RemoteReceiverComponentStore *arg) {
   const uint32_t now = micros();
@@ -144,6 +145,7 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Minimum frame pulses: %u", this->min_pulses_);
   ESP_LOGCONFIG(TAG, "  Maximum frame pulses: %u", this->max_pulses_);
   ESP_LOGCONFIG(TAG, "  Maximum frame duration: %u us", this->max_frame_duration_us_);
+  ESP_LOGCONFIG(TAG, "  Single-line raw dump: %s", YESNO(this->single_raw_dump_));
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
@@ -158,6 +160,21 @@ void TuyaRfComponent::log_frame_stats_(const char *event, uint32_t pulses, uint3
   ESP_LOGD(TAG, "RF stats: event=%s accepted=%u rejected=%u pulses=%u duration=%u us start=%u us rssi=%d dBm",
            event, this->received_frames_, this->rejected_frames_, pulses, duration_us,
            this->receive_start_pulse_us_, rssi_dbm);
+}
+
+void TuyaRfComponent::log_raw_frame_() {
+  const size_t size = this->RemoteReceiverBase::temp_.size();
+  const size_t raw_size = size == 0 ? 0 : size - 1;
+  std::string raw;
+  raw.reserve(16 + raw_size * 8);
+  raw = "Received Raw: ";
+  for (size_t i = 0; i < raw_size; i++) {
+    if (i != 0) {
+      raw += ", ";
+    }
+    raw += std::to_string(this->RemoteReceiverBase::temp_[i]);
+  }
+  ESP_LOGI(RAW_TAG, "%s", raw.c_str());
 }
 
 void TuyaRfComponent::await_target_time_() {
@@ -510,6 +527,9 @@ void TuyaRfComponent::loop() {
            this->received_frames_, pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us,
            frame_duration_us, this->rejected_frames_);
   this->log_frame_stats_("accept", pulse_count, frame_duration_us);
+  if (this->single_raw_dump_) {
+    this->log_raw_frame_();
+  }
 
   this->call_listeners_dumpers_();
 }

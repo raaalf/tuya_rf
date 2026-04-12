@@ -32,6 +32,7 @@ CONF_RECEIVER_ID = "receiver_id"
 CONF_QUEUE_MAX_SIZE = "queue_max_size"
 CONF_QUEUE_DELAY = "queue_delay"
 CONF_DATA = "data"
+CONF_SINGLE_RAW_DUMP = "single_raw_dump"
 
 from esphome.core import CORE, TimePeriod
 
@@ -197,6 +198,7 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
                 cv.positive_time_period_milliseconds,
                 cv.Range(max=TimePeriod(milliseconds=10000)),
             ),
+            cv.Optional(CONF_SINGLE_RAW_DUMP, default=True): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA)
 )
@@ -230,7 +232,13 @@ async def to_code(config):
     tx_pin = await cg.gpio_pin_expression(config[CONF_TX_PIN])
     var = cg.new_Pvariable(config[CONF_ID],sclk_pin,mosi_pin,csb_pin,fcsb_pin,tx_pin,rx_pin)
     #await cg.register_component(var, config)
-    dumpers = await remote_base.build_dumpers(config[CONF_DUMP])
+    raw_dump_requested = any("raw" in dumper for dumper in config[CONF_DUMP])
+    use_single_raw_dump = config[CONF_SINGLE_RAW_DUMP] and raw_dump_requested
+    cg.add(var.set_single_raw_dump(use_single_raw_dump))
+    dumpers_config = [
+        dumper for dumper in config[CONF_DUMP] if not (use_single_raw_dump and "raw" in dumper)
+    ]
+    dumpers = await remote_base.build_dumpers(dumpers_config)
     for dumper in dumpers:
         cg.add(var.register_dumper(dumper))
 
