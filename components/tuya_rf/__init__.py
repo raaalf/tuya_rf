@@ -215,7 +215,7 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
             ),
             cv.Optional(CONF_SINGLE_RAW_DUMP, default=True): cv.boolean,
             cv.Optional(CONF_ACCEPT_ON_RESTART, default=True): cv.boolean,
-            cv.Optional(CONF_DEDUPE_WINDOW, default="300ms"): cv.All(
+            cv.Optional(CONF_DEDUPE_WINDOW, default="200ms"): cv.All(
                 cv.positive_time_period_microseconds,
                 cv.Range(max=TimePeriod(microseconds=4294967295)),
             ),
