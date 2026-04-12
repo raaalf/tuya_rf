@@ -84,8 +84,29 @@ tuya_rf:
   id: rf
   receiver_disabled: true  # Disable RX if you only send — eliminates TX/RX switching issues
   dump: raw
+  frequency: 433
   queue_max_size: 10       # Buffer up to 10 RF commands
   queue_delay: 200ms       # 200ms between transmissions (start here, reduce if needed)
+
+select:
+  - platform: template
+    name: "RF Frequency"
+    id: rf_frequency
+    optimistic: true
+    initial_option: "433 MHz"
+    options:
+      - "315 MHz"
+      - "433 MHz"
+      - "868 MHz"
+    set_action:
+      - lambda: |-
+          if (x == "315 MHz") {
+            id(rf).set_frequency_mhz(315);
+          } else if (x == "433 MHz") {
+            id(rf).set_frequency_mhz(433);
+          } else if (x == "868 MHz") {
+            id(rf).set_frequency_mhz(868);
+          }
 
 # IR transmitter
 remote_transmitter:

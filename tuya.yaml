@@ -42,6 +42,27 @@ tuya_rf:
   id: rf
   receiver_disabled: true
   dump: raw
+  frequency: 433
+
+select:
+  - platform: template
+    name: RF Frequency
+    id: rf_frequency
+    optimistic: true
+    initial_option: "433 MHz"
+    options:
+      - "315 MHz"
+      - "433 MHz"
+      - "868 MHz"
+    set_action:
+      - lambda: |-
+          if (x == "315 MHz") {
+            id(rf).set_frequency_mhz(315);
+          } else if (x == "433 MHz") {
+            id(rf).set_frequency_mhz(433);
+          } else if (x == "868 MHz") {
+            id(rf).set_frequency_mhz(868);
+          }
 
 #for the ir leds
 remote_transmitter:
@@ -83,7 +104,7 @@ button:
     on_press:
        - tuya_rf.turn_on_receiver:
   - platform: template
-    name:  play/pause
+    name: play pause
     web_server:
         sorting_weight:  10
     on_press:
