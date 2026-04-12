@@ -405,9 +405,10 @@ void TuyaRfComponent::loop() {
           now - this->last_emit_time_ < this->dedupe_window_us_) {
         const uint32_t last_gap_us = now - s.buffer[write_at];
         const bool open_segment_is_pulse = ((write_at + 1) % s.buffer_size) % 2 == 0;
-        ESP_LOGD(TAG, "RF frame duplicate tail suppressed: duration=%u us exceeds max_frame_duration=%u us, dist=%u, start=%u us, last_gap=%u us, open=%s, since_last=%u us",
+        const int rssi_dbm = CMT2300A_GetRssiDBm();
+        ESP_LOGD(TAG, "RF frame duplicate tail suppressed: duration=%u us exceeds max_frame_duration=%u us, dist=%u, start=%u us, last_gap=%u us, open=%s, tail_rssi=%d dBm, since_last=%u us",
                  frame_duration_us, this->max_frame_duration_us_, dist, this->receive_start_pulse_us_,
-                 last_gap_us, open_segment_is_pulse ? "pulse" : "space", now - this->last_emit_time_);
+                 last_gap_us, open_segment_is_pulse ? "pulse" : "space", rssi_dbm, now - this->last_emit_time_);
         this->last_emit_time_ = now;
         receive_started_=false;
         s.buffer_read_at = write_at;
@@ -433,9 +434,10 @@ void TuyaRfComponent::loop() {
         now - this->last_emit_time_ < this->dedupe_window_us_) {
       const uint32_t last_gap_us = now - s.buffer[write_at];
       const bool open_segment_is_pulse = ((write_at + 1) % s.buffer_size) % 2 == 0;
-      ESP_LOGD(TAG, "RF frame duplicate tail suppressed: buffered pulses=%u exceeds max_pulses=%u, start=%u us, duration=%u us, last_gap=%u us, open=%s, since_last=%u us",
+      const int rssi_dbm = CMT2300A_GetRssiDBm();
+      ESP_LOGD(TAG, "RF frame duplicate tail suppressed: buffered pulses=%u exceeds max_pulses=%u, start=%u us, duration=%u us, last_gap=%u us, open=%s, tail_rssi=%d dBm, since_last=%u us",
                dist, this->max_pulses_, this->receive_start_pulse_us_, frame_duration_us, last_gap_us,
-               open_segment_is_pulse ? "pulse" : "space", now - this->last_emit_time_);
+               open_segment_is_pulse ? "pulse" : "space", rssi_dbm, now - this->last_emit_time_);
       this->last_emit_time_ = now;
       receive_started_=false;
       s.buffer_read_at = write_at;
