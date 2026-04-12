@@ -249,19 +249,20 @@ const uint8_t g_cmt2300aTxBank[CMT2300A_TX_BANK_SIZE] = {
 };
 
 /* [Tx Bank 868.000 MHz]
- * Taken from the same CMOSTEK RFPDK 1.50 export as the 868 MHz frequency bank.
+ * Test profile from CMT2300A 860/868 MHz projects (Ahoy/OpenDTU):
+ * 20 dBm matching network profile, configured for 13 dBm output.
  * Keep the data-rate and baseband banks unchanged for the direct raw signal path.
  */
 const uint8_t g_cmt2300aTxBank868[CMT2300A_TX_BANK_SIZE] = {
- /* 0x55 */   0x50,
- /* 0x56 */   0x93,
- /* 0x57 */   0x01,
+ /* 0x55 */   0x70,
+ /* 0x56 */   0x4D,
+ /* 0x57 */   0x06,
  /* 0x58 */   0x00,
- /* 0x59 */   0x42,
- /* 0x5A */   0xB0,
+ /* 0x59 */   0x07,
+ /* 0x5A */   0x50,
  /* 0x5B */   0x00,
- /* 0x5C */   0x42,
- /* 0x5D */   0x0C,
+ /* 0x5C */   0x5D,
+ /* 0x5D */   0x0B,
  /* 0x5E */   0x3F,
  /* 0x5F */   0x7F,
 };

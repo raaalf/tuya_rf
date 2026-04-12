@@ -266,7 +266,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   this->next_transmit_frequency_mhz_ = 0;
   ESP_LOGD(TAG, "Transmit frequency: %u MHz", frequency_mhz);
   if (frequency_mhz == 868) {
-    ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank");
+    ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank: Ahoy/OpenDTU 13 dBm profile");
   }
 
   const auto &data = this->RemoteTransmitterBase::temp_.get_data();
