@@ -91,6 +91,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us);
   void log_raw_frame_();
   uint32_t candidate_pulse_count_(uint32_t candidate_end) const;
+  uint32_t frame_hash_() const;
   uint32_t target_time_;
 #if defined(USE_LIBRETINY)
   RemoteReceiverComponentStore store_;
@@ -125,6 +126,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint32_t received_frames_{0};
   uint32_t rejected_frames_{0};
   uint32_t last_emit_time_{0};
+  uint32_t last_frame_pulses_{0};
+  uint32_t last_frame_hash_{0};
 
   // Queue members
   std::deque<TransmitQueueItem> transmit_queue_;
