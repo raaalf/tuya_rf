@@ -312,6 +312,7 @@ void TuyaRfComponent::loop() {
   const uint32_t now = micros();
 
   bool receive_end = false;
+  uint32_t receive_end_time = now;
   uint32_t end_marker_us = this->end_pulse_us_;
   const char *end_reason = "end pulse";
   uint32_t new_write_at = old_write_at_;
@@ -393,6 +394,7 @@ void TuyaRfComponent::loop() {
             //it's a probable end pulse
             if (receive_started_) {
               receive_end=true;
+              receive_end_time=s.buffer[new_write_at];
               end_marker_us=this->end_pulse_us_;
               end_reason="end pulse";
               new_write_at=prev;
@@ -409,10 +411,9 @@ void TuyaRfComponent::loop() {
                   candidate_pulses <= this->max_pulses_ &&
                   candidate_duration_us <= this->max_frame_duration_us_) {
                 receive_end=true;
+                receive_end_time=s.buffer[prev];
                 end_marker_us=this->frame_gap_us_;
                 end_reason="restart boundary";
-                ESP_LOGD(TAG, "RF frame accepted before restart: pulses=%u, duration=%u us, next_start=%u us",
-                         candidate_pulses, candidate_duration_us, diff);
                 new_write_at=prev;
                 break;
               }
@@ -444,6 +445,7 @@ void TuyaRfComponent::loop() {
         }
         if (diff>=this->frame_gap_us_) {
           receive_end=true;
+          receive_end_time=s.buffer[new_write_at];
           end_marker_us=diff;
           end_reason="gap edge";
           new_write_at=prev;
@@ -474,12 +476,14 @@ void TuyaRfComponent::loop() {
     const bool open_segment_is_pulse = next % 2 == 0;
     if (open_segment_is_pulse && gap>=this->end_pulse_us_) {
       receive_end=true;
+      receive_end_time=now;
       end_marker_us=this->end_pulse_us_;
       end_reason="end pulse timeout";
       new_write_at=write_at;
       old_write_at_=write_at;
     } else if (!open_segment_is_pulse && gap>=this->frame_gap_us_) {
       receive_end=true;
+      receive_end_time=now;
       end_marker_us=gap;
       end_reason="gap timeout";
       new_write_at=write_at;
@@ -492,7 +496,7 @@ void TuyaRfComponent::loop() {
   }
 
   //here we have a supposedly valid sequence
-  const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
+  const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : receive_end_time - receive_start_time_;
 
   receive_started_=false;
 
@@ -543,19 +547,21 @@ void TuyaRfComponent::loop() {
   s.buffer_read_at = (s.buffer_size + s.buffer_read_at - 1) % s.buffer_size;
   this->RemoteReceiverBase::temp_.push_back(end_marker_us * multiplier);
 
+  if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
+      now - this->last_emit_time_ < this->dedupe_window_us_) {
+    ESP_LOGD(TAG, "RF frame duplicate suppressed: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, since_last=%u us",
+             pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us, frame_duration_us,
+             now - this->last_emit_time_);
+    this->last_emit_time_ = now;
+    return;
+  }
+  this->last_emit_time_ = now;
+
   this->received_frames_++;
   ESP_LOGD(TAG, "RF frame accepted #%u: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, rejected=%u",
            this->received_frames_, pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us,
            frame_duration_us, this->rejected_frames_);
   this->log_frame_stats_("accept", pulse_count, frame_duration_us);
-  if (this->dedupe_window_us_ > 0 && this->last_emit_time_ != 0 &&
-      now - this->last_emit_time_ < this->dedupe_window_us_) {
-    ESP_LOGD(TAG, "RF frame suppressed as duplicate: pulses=%u, duration=%u us, since_last=%u us",
-             pulse_count, frame_duration_us, now - this->last_emit_time_);
-    this->last_emit_time_ = now;
-    return;
-  }
-  this->last_emit_time_ = now;
   if (this->single_raw_dump_) {
     this->log_raw_frame_();
   }
