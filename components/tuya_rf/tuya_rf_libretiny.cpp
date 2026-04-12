@@ -63,6 +63,10 @@ void TuyaRfComponent::set_receiver(bool on) {
     } else {
       s.buffer_write_at = s.buffer_read_at = 0;
     }
+    this->old_write_at_ = s.buffer_read_at;
+    this->receive_started_ = false;
+    this->receive_start_time_ = 0;
+    this->receive_start_pulse_us_ = 0;
     this->RemoteReceiverBase::pin_->attach_interrupt(RemoteReceiverComponentStore::gpio_intr, &this->store_, gpio::INTERRUPT_ANY_EDGE);
     this->high_freq_.start();
     if (!this->transmitting_) {
@@ -127,6 +131,9 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Filter out pulses shorter than: %u us", this->filter_us_);
   ESP_LOGCONFIG(TAG, "  Signal start with a pulse between %u and %u us", this->start_pulse_min_us_, this->start_pulse_max_us_);
   ESP_LOGCONFIG(TAG, "  Signal is done after a pulse of %u us", this->end_pulse_us_);
+  ESP_LOGCONFIG(TAG, "  Max pause during a frame: %u us", this->max_pause_us_);
+  ESP_LOGCONFIG(TAG, "  Gap timeout ends a frame after: %u us", this->frame_gap_us_);
+  ESP_LOGCONFIG(TAG, "  Minimum frame pulses: %u", this->min_pulses_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
@@ -239,9 +246,12 @@ The rf input is quite noisy, so some heavy filtering must be done:
     The default values work with my remote, I don't know if 
     they are valid for other remotes.
 
-  - the cmt2300a gives a very long pulse (90ms) at the end of a
-    reception, the parameter to detect it is end_pulse_us_.
-*/
+	  - the cmt2300a gives a very long pulse (90ms) at the end of a
+	    reception, the parameter to detect it is end_pulse_us_.
+
+	  - if no end pulse arrives, frame_gap_us_ closes the frame after a
+	    quiet period, and min_pulses_ rejects short noise bursts.
+	*/
 void TuyaRfComponent::loop() {
   // Process transmit queue first
   this->process_transmit_queue();
@@ -254,16 +264,17 @@ void TuyaRfComponent::loop() {
   // copy write at to local variables, as it's volatile
   const uint32_t write_at = s.buffer_write_at;
   const uint32_t dist = (s.buffer_size + write_at - s.buffer_read_at) % s.buffer_size;
-
-  // signals must at least one rising and one leading edge
-  if (dist <= 1)
-    return;
+  const uint32_t now = micros();
 
   bool receive_end = false;
+  uint32_t end_marker_us = this->end_pulse_us_;
+  const char *end_reason = "end pulse";
+  uint32_t new_write_at = old_write_at_;
 
   //stop the reception if the end pulse never arrives
   if (receive_started_ && dist >= s.buffer_size - 5) {
-    ESP_LOGVV(TAG,"Buffer overflow, restarting reception");
+    this->rejected_frames_++;
+    ESP_LOGW(TAG, "RF frame rejected: RX buffer nearly full (dist=%u, rejected=%u)", dist, this->rejected_frames_);
     receive_started_=false;
     #if 0
     uint32_t prev = s.buffer_read_at;
@@ -284,56 +295,95 @@ void TuyaRfComponent::loop() {
     return;
   }
 
-  //now we check all the available data in the buffer from the old position read
-  uint32_t new_write_at = old_write_at_;
-  while (new_write_at != write_at) {
-    uint32_t prev;
-    if (new_write_at==0) {
-      prev=s.buffer_size-1;
-    } else {
-      prev=new_write_at-1;
-    }
-    uint32_t diff=s.buffer[new_write_at]-s.buffer[prev];
-    //reception starts and ends with a pulse (transition to low, new value is 0)
-    if (new_write_at % 2 == 0) {
-      //check if it's a start or end pulse
-      if (diff>=this->start_pulse_min_us_) {
-        if (diff >= this->end_pulse_us_) {
-          //it's a probable end pulse
-          if (receive_started_) {
-            receive_end=true;
-            new_write_at=prev;
-            break;
-          } else {
-            ESP_LOGVV(TAG, "Not receiving, ignoring ending pulse (%u)",diff);
-          }
-        } else if (diff<this->start_pulse_max_us_) {
-          //it's a new start pulse, discard old data and start again
-          ESP_LOGVV(TAG, "Long pulse (%u), start reception",diff);
-          s.buffer_read_at=prev;
-          receive_started_=true;
-        } else {
-          ESP_LOGVV(TAG, "Starting pulse (%u) too long, ignored",diff);
-        }
+  // signals must at least one rising and one leading edge before scanning
+  if (dist > 1) {
+    //now we check all the available data in the buffer from the old position read
+    while (new_write_at != write_at) {
+      uint32_t prev;
+      if (new_write_at==0) {
+        prev=s.buffer_size-1;
+      } else {
+        prev=new_write_at-1;
       }
-    } else if (receive_started_ && diff>=this->start_pulse_min_us_) {
-      //pauses can never be longer than the start pulse
-      ESP_LOGVV(TAG, "Long pause (%u) during reception, restarting",diff);
-      receive_started_=false;
+      uint32_t diff=s.buffer[new_write_at]-s.buffer[prev];
+      //reception starts and ends with a pulse (transition to low, new value is 0)
+      if (new_write_at % 2 == 0) {
+        //check if it's a start or end pulse
+        if (diff>=this->start_pulse_min_us_) {
+          if (diff >= this->end_pulse_us_) {
+            //it's a probable end pulse
+            if (receive_started_) {
+              receive_end=true;
+              end_marker_us=this->end_pulse_us_;
+              end_reason="end pulse";
+              new_write_at=prev;
+              break;
+            } else {
+              ESP_LOGVV(TAG, "Not receiving, ignoring ending pulse (%u)",diff);
+            }
+          } else if (diff<this->start_pulse_max_us_) {
+            //it's a new start pulse, discard old data and start again
+            if (receive_started_) {
+              ESP_LOGD(TAG, "RF frame restart: new start pulse=%u us", diff);
+            } else {
+              ESP_LOGD(TAG, "RF frame start: pulse=%u us", diff);
+            }
+            s.buffer_read_at=prev;
+            receive_started_=true;
+            receive_start_time_=s.buffer[prev];
+            receive_start_pulse_us_=diff;
+          } else {
+            ESP_LOGVV(TAG, "Starting pulse (%u) too long, ignored",diff);
+          }
+        }
+      } else if (receive_started_ && diff>=this->max_pause_us_) {
+        if (diff>=this->frame_gap_us_) {
+          receive_end=true;
+          end_marker_us=diff;
+          end_reason="gap edge";
+          new_write_at=prev;
+          break;
+        }
+        this->rejected_frames_++;
+        ESP_LOGD(TAG, "RF frame rejected: pause=%u us exceeds max_pause=%u us (rejected=%u)",
+                 diff, this->max_pause_us_, this->rejected_frames_);
+        receive_started_=false;
+      }
+      if (!receive_started_) {
+        s.buffer_read_at=prev;
+      }
+      new_write_at = (new_write_at + 1) % s.buffer_size;
     }
-    if (!receive_started_) {
-      s.buffer_read_at=prev;
-    }
-    new_write_at = (new_write_at + 1) % s.buffer_size;
+    old_write_at_ = new_write_at;
+  } else if (!receive_started_) {
+    return;
   }
-  old_write_at_ = new_write_at;
+
+  if (!receive_end && receive_started_) {
+    const uint32_t gap = now - s.buffer[write_at];
+    const uint32_t next = (write_at + 1) % s.buffer_size;
+    const bool open_segment_is_pulse = next % 2 == 0;
+    if (open_segment_is_pulse && gap>=this->end_pulse_us_) {
+      receive_end=true;
+      end_marker_us=this->end_pulse_us_;
+      end_reason="end pulse timeout";
+      new_write_at=write_at;
+      old_write_at_=write_at;
+    } else if (!open_segment_is_pulse && gap>=this->frame_gap_us_) {
+      receive_end=true;
+      end_marker_us=gap;
+      end_reason="gap timeout";
+      new_write_at=write_at;
+      old_write_at_=write_at;
+    }
+  }
 
   if (!receive_end) {
     return;
   }
 
   //here we have a supposedly valid sequence
-  const uint32_t now = micros();
+  const uint32_t frame_duration_us = receive_start_time_ == 0 ? 0 : now - receive_start_time_;
 
   receive_started_=false;
 
@@ -342,9 +392,18 @@ void TuyaRfComponent::loop() {
 
   uint32_t prev = s.buffer_read_at;
   s.buffer_read_at = (s.buffer_read_at + 1) % s.buffer_size;
-  const uint32_t reserve_size = 1 + (s.buffer_size + new_write_at - s.buffer_read_at) % s.buffer_size;
+  const uint32_t pulse_count = 1 + (s.buffer_size + new_write_at - s.buffer_read_at) % s.buffer_size;
+  if (pulse_count < this->min_pulses_) {
+    this->rejected_frames_++;
+    ESP_LOGD(TAG, "RF frame rejected: pulses=%u below min_pulses=%u (start=%u us, end=%s/%u us, duration=%u us, rejected=%u)",
+             pulse_count, this->min_pulses_, this->receive_start_pulse_us_, end_reason, end_marker_us,
+             frame_duration_us, this->rejected_frames_);
+    s.buffer_read_at = new_write_at;
+    old_write_at_ = new_write_at;
+    return;
+  }
   this->RemoteReceiverBase::temp_.clear();
-  this->RemoteReceiverBase::temp_.reserve(reserve_size);
+  this->RemoteReceiverBase::temp_.reserve(pulse_count + 1);
   int32_t multiplier = s.buffer_read_at % 2 == 0 ? 1 : -1;
 
   for (uint32_t i = 0; prev != new_write_at; i++) {
@@ -358,7 +417,12 @@ void TuyaRfComponent::loop() {
     multiplier *= -1;
   }
   s.buffer_read_at = (s.buffer_size + s.buffer_read_at - 1) % s.buffer_size;
-  this->RemoteReceiverBase::temp_.push_back(this->end_pulse_us_ * multiplier);
+  this->RemoteReceiverBase::temp_.push_back(end_marker_us * multiplier);
+
+  this->received_frames_++;
+  ESP_LOGD(TAG, "RF frame accepted #%u: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, rejected=%u",
+           this->received_frames_, pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us,
+           frame_duration_us, this->rejected_frames_);
 
   this->call_listeners_dumpers_();
 }

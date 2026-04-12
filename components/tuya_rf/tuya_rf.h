@@ -61,6 +61,9 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_start_pulse_min_us(uint32_t start_pulse_min_us) { this->start_pulse_min_us_ = start_pulse_min_us; }
   void set_start_pulse_max_us(uint32_t start_pulse_max_us) { this->start_pulse_max_us_ = start_pulse_max_us; }
   void set_end_pulse_us(uint32_t end_pulse_us) { this->end_pulse_us_ = end_pulse_us; }
+  void set_max_pause_us(uint32_t max_pause_us) { this->max_pause_us_ = max_pause_us; }
+  void set_frame_gap_us(uint32_t frame_gap_us) { this->frame_gap_us_ = frame_gap_us; }
+  void set_min_pulses(uint32_t min_pulses) { this->min_pulses_ = min_pulses; }
   void turn_on_receiver();
   void turn_off_receiver();
 
@@ -96,10 +99,17 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint32_t start_pulse_min_us_{6000};
   uint32_t start_pulse_max_us_{10000};
   uint32_t end_pulse_us_{50000};
+  uint32_t max_pause_us_{6000};
+  uint32_t frame_gap_us_{12000};
+  uint32_t min_pulses_{12};
 
   bool transmitting_{false};
   bool receive_started_{false};
   uint32_t old_write_at_{0};
+  uint32_t receive_start_time_{0};
+  uint32_t receive_start_pulse_us_{0};
+  uint32_t received_frames_{0};
+  uint32_t rejected_frames_{0};
 
   // Queue members
   std::deque<TransmitQueueItem> transmit_queue_;

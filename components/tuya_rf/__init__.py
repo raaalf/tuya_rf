@@ -19,6 +19,9 @@ CONF_TX_PIN = "tx_pin"
 CONF_START_PULSE_MIN = "start_pulse_min"
 CONF_START_PULSE_MAX = "start_pulse_max"
 CONF_END_PULSE = "end_pulse"
+CONF_MAX_PAUSE = "max_pause"
+CONF_FRAME_GAP = "frame_gap"
+CONF_MIN_PULSES = "min_pulses"
 CONF_SCLK_PIN = "sclk_pin"
 CONF_MOSI_PIN = "mosi_pin"
 CONF_CSB_PIN = "csb_pin"
@@ -164,6 +167,18 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
                 cv.positive_time_period_microseconds,
                 cv.Range(max=TimePeriod(microseconds=4294967295)),
             ),
+            cv.Optional(CONF_MAX_PAUSE, default="6000us"): cv.All(
+                cv.positive_time_period_microseconds,
+                cv.Range(max=TimePeriod(microseconds=4294967295)),
+            ),
+            cv.Optional(CONF_FRAME_GAP, default="12ms"): cv.All(
+                cv.positive_time_period_microseconds,
+                cv.Range(max=TimePeriod(microseconds=4294967295)),
+            ),
+            cv.Optional(CONF_MIN_PULSES, default=12): cv.All(
+                cv.uint32_t,
+                cv.Range(min=2, max=1000),
+            ),
             cv.Optional(CONF_QUEUE_MAX_SIZE, default=10): cv.All(
                 cv.uint32_t,
                 cv.Range(min=1, max=100),
@@ -180,10 +195,14 @@ def validate_pulses(config):
     start_pulse_min=config[CONF_START_PULSE_MIN]
     start_pulse_max=config[CONF_START_PULSE_MAX]
     end_pulse=config[CONF_END_PULSE]
+    max_pause=config[CONF_MAX_PAUSE]
+    frame_gap=config[CONF_FRAME_GAP]
     if start_pulse_max < start_pulse_min:
         raise cv.Invalid("start_pulse_max must be greater than start_pulse_min")
     if end_pulse < start_pulse_max:
         raise cv.Invalid("end_pulse must be greater than start_pulse_max")
+    if frame_gap <= max_pause:
+        raise cv.Invalid("frame_gap must be greater than max_pause")
 
 async def to_code(config):
     sclk_pin = await cg.gpio_pin_expression(config[CONF_SCLK_PIN])
@@ -214,6 +233,9 @@ async def to_code(config):
     cg.add(var.set_start_pulse_min_us(config[CONF_START_PULSE_MIN]))
     cg.add(var.set_start_pulse_max_us(config[CONF_START_PULSE_MAX]))
     cg.add(var.set_end_pulse_us(config[CONF_END_PULSE]))
+    cg.add(var.set_max_pause_us(config[CONF_MAX_PAUSE]))
+    cg.add(var.set_frame_gap_us(config[CONF_FRAME_GAP]))
+    cg.add(var.set_min_pulses(config[CONF_MIN_PULSES]))
     cg.add(var.set_queue_max_size(config[CONF_QUEUE_MAX_SIZE]))
     cg.add(var.set_queue_delay_ms(config[CONF_QUEUE_DELAY]))
     validate_pulses(config)
