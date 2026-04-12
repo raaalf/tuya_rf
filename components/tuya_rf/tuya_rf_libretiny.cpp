@@ -57,6 +57,13 @@ void TuyaRfComponent::set_receiver(bool on) {
       void *buf = (void *) s.buffer;
       memset(buf, 0, s.buffer_size * sizeof(uint32_t));
     }
+    if (!this->transmitting_) {
+      int res = StartRx();
+      if (res != 0) {
+        ESP_LOGE(TAG, "Error starting RX (%d)", res);
+        return;
+      }
+    }
     // First index is a space (signal is inverted)
     if (!this->RemoteReceiverBase::pin_->digital_read()) {
       s.buffer_write_at = s.buffer_read_at = 1;
@@ -69,9 +76,6 @@ void TuyaRfComponent::set_receiver(bool on) {
     this->receive_start_pulse_us_ = 0;
     this->RemoteReceiverBase::pin_->attach_interrupt(RemoteReceiverComponentStore::gpio_intr, &this->store_, gpio::INTERRUPT_ANY_EDGE);
     this->high_freq_.start();
-    if (!this->transmitting_) {
-      StartRx();
-    }
   } else {
     ESP_LOGD(TAG, "stopping receiver");
     if (!this->transmitting_) {
@@ -134,6 +138,8 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Max pause during a frame: %u us", this->max_pause_us_);
   ESP_LOGCONFIG(TAG, "  Gap timeout ends a frame after: %u us", this->frame_gap_us_);
   ESP_LOGCONFIG(TAG, "  Minimum frame pulses: %u", this->min_pulses_);
+  ESP_LOGCONFIG(TAG, "  Maximum frame pulses: %u", this->max_pulses_);
+  ESP_LOGCONFIG(TAG, "  Maximum frame duration: %u us", this->max_frame_duration_us_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
@@ -231,7 +237,10 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     }
   } else {
     //Go back to rx mode
-    StartRx();
+    int rx_res = StartRx();
+    if (rx_res != 0) {
+      ESP_LOGE(TAG, "Error returning to RX (%d)", rx_res);
+    }
   }
 }
 
@@ -270,6 +279,29 @@ void TuyaRfComponent::loop() {
   uint32_t end_marker_us = this->end_pulse_us_;
   const char *end_reason = "end pulse";
   uint32_t new_write_at = old_write_at_;
+
+  if (receive_started_ && receive_start_time_ != 0) {
+    const uint32_t frame_duration_us = now - receive_start_time_;
+    if (frame_duration_us > this->max_frame_duration_us_) {
+      this->rejected_frames_++;
+      ESP_LOGW(TAG, "RF frame rejected: duration=%u us exceeds max_frame_duration=%u us (dist=%u, rejected=%u)",
+               frame_duration_us, this->max_frame_duration_us_, dist, this->rejected_frames_);
+      receive_started_=false;
+      s.buffer_read_at = write_at;
+      old_write_at_ = write_at;
+      return;
+    }
+  }
+
+  if (receive_started_ && dist > this->max_pulses_) {
+    this->rejected_frames_++;
+    ESP_LOGW(TAG, "RF frame rejected: buffered pulses=%u exceeds max_pulses=%u (rejected=%u)",
+             dist, this->max_pulses_, this->rejected_frames_);
+    receive_started_=false;
+    s.buffer_read_at = write_at;
+    old_write_at_ = write_at;
+    return;
+  }
 
   //stop the reception if the end pulse never arrives
   if (receive_started_ && dist >= s.buffer_size - 5) {
@@ -337,6 +369,15 @@ void TuyaRfComponent::loop() {
           }
         }
       } else if (receive_started_ && diff>=this->max_pause_us_) {
+        if (diff > this->max_frame_duration_us_) {
+          this->rejected_frames_++;
+          ESP_LOGW(TAG, "RF frame rejected: segment=%u us exceeds max_frame_duration=%u us (possible stale edge, rejected=%u)",
+                   diff, this->max_frame_duration_us_, this->rejected_frames_);
+          receive_started_=false;
+          s.buffer_read_at=write_at;
+          old_write_at_=write_at;
+          return;
+        }
         if (diff>=this->frame_gap_us_) {
           receive_end=true;
           end_marker_us=diff;
@@ -397,6 +438,15 @@ void TuyaRfComponent::loop() {
     this->rejected_frames_++;
     ESP_LOGD(TAG, "RF frame rejected: pulses=%u below min_pulses=%u (start=%u us, end=%s/%u us, duration=%u us, rejected=%u)",
              pulse_count, this->min_pulses_, this->receive_start_pulse_us_, end_reason, end_marker_us,
+             frame_duration_us, this->rejected_frames_);
+    s.buffer_read_at = new_write_at;
+    old_write_at_ = new_write_at;
+    return;
+  }
+  if (pulse_count > this->max_pulses_) {
+    this->rejected_frames_++;
+    ESP_LOGD(TAG, "RF frame rejected: pulses=%u above max_pulses=%u (start=%u us, end=%s/%u us, duration=%u us, rejected=%u)",
+             pulse_count, this->max_pulses_, this->receive_start_pulse_us_, end_reason, end_marker_us,
              frame_duration_us, this->rejected_frames_);
     s.buffer_read_at = new_write_at;
     old_write_at_ = new_write_at;

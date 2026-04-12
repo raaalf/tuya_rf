@@ -64,6 +64,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_max_pause_us(uint32_t max_pause_us) { this->max_pause_us_ = max_pause_us; }
   void set_frame_gap_us(uint32_t frame_gap_us) { this->frame_gap_us_ = frame_gap_us; }
   void set_min_pulses(uint32_t min_pulses) { this->min_pulses_ = min_pulses; }
+  void set_max_pulses(uint32_t max_pulses) { this->max_pulses_ = max_pulses; }
+  void set_max_frame_duration_us(uint32_t max_frame_duration_us) { this->max_frame_duration_us_ = max_frame_duration_us; }
   void turn_on_receiver();
   void turn_off_receiver();
 
@@ -102,6 +104,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint32_t max_pause_us_{6000};
   uint32_t frame_gap_us_{12000};
   uint32_t min_pulses_{12};
+  uint32_t max_pulses_{200};
+  uint32_t max_frame_duration_us_{250000};
 
   bool transmitting_{false};
   bool receive_started_{false};

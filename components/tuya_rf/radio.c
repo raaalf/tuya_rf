@@ -53,8 +53,8 @@ int RF_Init(void)
 }
 
 int StartTx() {
-    if (RF_Init()!=0) {
-        return 1;
+    if (!CMT2300A_GoStby()) {
+        return 2;
     }
     CMT2300A_WriteReg(CMT2300A_CUS_SYS2,0);
     CMT2300A_ConfigGpio(CMT2300A_GPIO1_SEL_DOUT | CMT2300A_GPIO3_SEL_DIN | CMT2300A_GPIO2_SEL_INT2);
@@ -62,8 +62,6 @@ int StartTx() {
 	CMT2300A_ConfigTxDin(CMT2300A_TX_DIN_SEL_GPIO1);
 	CMT2300A_EnableTxDinInvert(false);
 	CMT2300A_ClearInterruptFlags();  // Clear stale TX_DONE flags to prevent false early exit in AutoSwitchStatus
-	CMT2300A_GoSleep();
-	CMT2300A_GoStby();
 	delay(2);  // Stabilization delay: let CMT2300A settle in Standby before TX transition
 	if (CMT2300A_GoTx()) {
 	    delay(2);  // Stabilization delay: let CMT2300A fully enter TX mode
@@ -75,36 +73,24 @@ int StartTx() {
  
 
 int StartRx() {
-    if (RF_Init()!=0) {
-        return 1;
+    if (!CMT2300A_GoStby()) {
+        return 2;
     }
 
-    CMT2300A_ConfigGpio (CMT2300A_GPIO1_SEL_INT1 | CMT2300A_GPIO2_SEL_INT2 | CMT2300A_GPIO3_SEL_DOUT);
-	CMT2300A_ConfigInterrupt(CMT2300A_INT_SEL_TX_DONE, CMT2300A_INT_SEL_PKT_OK);
-	CMT2300A_EnableInterrupt(CMT2300A_MASK_TX_DONE_EN | CMT2300A_MASK_PKT_DONE_EN);
-
 	CMT2300A_WriteReg(CMT2300A_CUS_SYS2 , 0);
-
+	CMT2300A_EnableTxDin(false);
 	CMT2300A_EnableFifoMerge(true);
-
 	CMT2300A_WriteReg(CMT2300A_CUS_PKT29, 0x20); 
-
-	CMT2300A_GoSleep();
-	CMT2300A_GoStby();
 	CMT2300A_ConfigGpio (CMT2300A_GPIO1_SEL_DCLK | CMT2300A_GPIO2_SEL_DOUT | CMT2300A_GPIO3_SEL_INT2);
-	CMT2300A_ConfigInterrupt(CMT2300A_INT_SEL_SYNC_OK | CMT2300A_INT_SEL_SL_TMO, CMT2300A_INT_SEL_PKT_OK);
-    CMT2300A_EnableFifoMerge(true);
+	CMT2300A_ConfigInterrupt(CMT2300A_INT_SEL_SYNC_OK, CMT2300A_INT_SEL_SL_TMO);
+	CMT2300A_EnableInterrupt(0);
 	CMT2300A_ClearInterruptFlags();
 	CMT2300A_ClearRxFifo();
 	delay(2);  // Stabilization delay: let FIFO clear complete before RX transition
 
-    CMT2300A_GoRx();
-    delay(20);  // Stabilization delay: let CMT2300A PLL lock and fully enter RX mode
-
-	//CMT2300_IsExist()
-	int rssi=CMT2300A_GetRssiDBm();
-	//stream->print("rssi dbm ");
-	//stream->println(rssi);
+    if (!CMT2300A_GoRx()) {
+        return 2;
+    }
 
 	CMT2300A_ClearInterruptFlags();
     return 0;
