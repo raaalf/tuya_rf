@@ -35,6 +35,7 @@ CONF_DATA = "data"
 CONF_SINGLE_RAW_DUMP = "single_raw_dump"
 CONF_ACCEPT_ON_RESTART = "accept_on_restart"
 CONF_DEDUPE_WINDOW = "dedupe_window"
+CONF_FREQUENCY = "frequency"
 
 from esphome.core import CORE, TimePeriod
 
@@ -80,6 +81,14 @@ TurnOffReceiverAction = tuya_rf_ns.class_("TurnOffReceiverAction", automation.Ac
 TurnOnReceiverAction = tuya_rf_ns.class_("TurnOnReceiverAction", automation.Action)
 QueueTransmitAction = tuya_rf_ns.class_("QueueTransmitAction", automation.Action)
 
+def validate_frequency(value):
+    if isinstance(value, str):
+        value = value.lower().replace("mhz", "").strip()
+    frequency = cv.int_(value)
+    if frequency not in (315, 433, 868):
+        raise cv.Invalid("frequency must be 315, 433, or 868 MHz")
+    return frequency
+
 TUYA_RF_ACTION_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_RECEIVER_ID): cv.use_id(TuyaRfComponent),
@@ -90,6 +99,7 @@ TUYA_RF_QUEUE_TRANSMIT_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_RECEIVER_ID): cv.use_id(TuyaRfComponent),
         cv.Required(CONF_DATA): cv.templatable(cv.ensure_list(cv.int_)),
+        cv.Optional(CONF_FREQUENCY): validate_frequency,
     }
 )
 
@@ -127,6 +137,8 @@ async def tuya_rf_queue_transmit_to_code(config, action_id, template_arg, args):
         config[CONF_DATA], args, cg.std_vector.template(cg.int32)
     )
     cg.add(var.set_data(template_))
+    if CONF_FREQUENCY in config:
+        cg.add(var.set_frequency(config[CONF_FREQUENCY]))
     return var
 
 
@@ -219,6 +231,7 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
                 cv.positive_time_period_microseconds,
                 cv.Range(max=TimePeriod(microseconds=4294967295)),
             ),
+            cv.Optional(CONF_FREQUENCY, default=433): validate_frequency,
         }
     ).extend(cv.COMPONENT_SCHEMA)
 )
@@ -287,4 +300,5 @@ async def to_code(config):
     cg.add(var.set_queue_delay_ms(config[CONF_QUEUE_DELAY]))
     cg.add(var.set_accept_on_restart(config[CONF_ACCEPT_ON_RESTART]))
     cg.add(var.set_dedupe_window_us(config[CONF_DEDUPE_WINDOW]))
+    cg.add(var.set_frequency_mhz(config[CONF_FREQUENCY]))
     validate_pulses(config)

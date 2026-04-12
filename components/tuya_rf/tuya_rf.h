@@ -6,6 +6,7 @@
 #include <vector>
 #include <deque>
 #include <string>
+#include <cstdint>
 
 namespace esphome {
 namespace tuya_rf {
@@ -13,6 +14,7 @@ namespace tuya_rf {
 struct TransmitQueueItem {
   std::vector<int32_t> data;
   uint32_t queued_at;
+  uint16_t frequency_mhz;
 };
 
 #if defined(USE_LIBRETINY)
@@ -70,13 +72,14 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_single_raw_dump(bool single_raw_dump) { this->single_raw_dump_ = single_raw_dump; }
   void set_accept_on_restart(bool accept_on_restart) { this->accept_on_restart_ = accept_on_restart; }
   void set_dedupe_window_us(uint32_t dedupe_window_us) { this->dedupe_window_us_ = dedupe_window_us; }
+  void set_frequency_mhz(uint16_t frequency_mhz) { this->frequency_mhz_ = frequency_mhz; }
   void turn_on_receiver();
   void turn_off_receiver();
 
   // Queue management
   void set_queue_max_size(uint32_t max_size) { this->queue_max_size_ = max_size; }
   void set_queue_delay_ms(uint32_t delay_ms) { this->queue_delay_ms_ = delay_ms; }
-  bool queue_transmit(const std::vector<int32_t> &data);
+  bool queue_transmit(const std::vector<int32_t> &data, uint16_t frequency_mhz = 0);
   void process_transmit_queue();
 
  protected:
@@ -116,6 +119,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   bool single_raw_dump_{false};
   bool accept_on_restart_{true};
   uint32_t dedupe_window_us_{200000};
+  uint16_t frequency_mhz_{433};
+  uint16_t next_transmit_frequency_mhz_{0};
 
   bool transmitting_{false};
   bool receive_started_{false};

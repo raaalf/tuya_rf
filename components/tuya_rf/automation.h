@@ -32,6 +32,7 @@ template<typename... Ts> class QueueTransmitAction : public Action<Ts...> {
   QueueTransmitAction(TuyaRfComponent *tuya_rf) : tuya_rf_(tuya_rf) {}
 
   TEMPLATABLE_VALUE(std::vector<int32_t>, data)
+  void set_frequency(uint16_t frequency_mhz) { this->frequency_mhz_ = frequency_mhz; }
 
   // Explicit overload for brace-enclosed initializer lists.
   // ESPHome codegen emits set_data({625, -593, ...}) for static data,
@@ -40,11 +41,12 @@ template<typename... Ts> class QueueTransmitAction : public Action<Ts...> {
 
   void play(Ts... x) override {
     auto data = this->data_.value(x...);
-    this->tuya_rf_->queue_transmit(data);
+    this->tuya_rf_->queue_transmit(data, this->frequency_mhz_);
   }
 
  protected:
   TuyaRfComponent *tuya_rf_;
+  uint16_t frequency_mhz_{0};
 };
 
 }  // namespace tuya_rf

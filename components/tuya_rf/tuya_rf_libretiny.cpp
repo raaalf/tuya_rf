@@ -59,7 +59,7 @@ void TuyaRfComponent::set_receiver(bool on) {
       memset(buf, 0, s.buffer_size * sizeof(uint32_t));
     }
     if (!this->transmitting_) {
-      int res = StartRx();
+      int res = StartRx(this->frequency_mhz_);
       if (res != 0) {
         ESP_LOGE(TAG, "Error starting RX (%d)", res);
         return;
@@ -148,6 +148,7 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Single-line raw dump: %s", YESNO(this->single_raw_dump_));
   ESP_LOGCONFIG(TAG, "  Accept previous frame on repeated start: %s", YESNO(this->accept_on_restart_));
   ESP_LOGCONFIG(TAG, "  Dedupe accepted frames within: %u us", this->dedupe_window_us_);
+  ESP_LOGCONFIG(TAG, "  Frequency: %u MHz", this->frequency_mhz_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
@@ -217,17 +218,23 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   // StartTx runs WITHOUT InterruptLock — it does SPI communication and
   // polls AutoSwitchStatus which needs working timers (millis/micros).
   // With interrupts disabled, the timeout loop behaved unpredictably.
-  int res=StartTx();
+  const uint16_t frequency_mhz = this->next_transmit_frequency_mhz_ != 0 ? this->next_transmit_frequency_mhz_ : this->frequency_mhz_;
+  ESP_LOGD(TAG, "Transmit frequency: %u MHz", frequency_mhz);
+  int res=StartTx(frequency_mhz);
   switch(res) {
     case 0:
       //ESP_LOGD(TAG,"StartTx ok");
       break;
     case 1:
-      ESP_LOGE(TAG,"Error Rf_Init");
+      ESP_LOGE(TAG,"Error configuring RF registers");
       this->transmitting_=false;
       return;
     case 2:
       ESP_LOGE(TAG,"Error go tx");
+      this->transmitting_=false;
+      return;
+    case 3:
+      ESP_LOGE(TAG,"Unsupported frequency %u MHz", frequency_mhz);
       this->transmitting_=false;
       return;
     default:
@@ -273,7 +280,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     }
   } else {
     //Go back to rx mode
-    int rx_res = StartRx();
+    int rx_res = StartRx(this->frequency_mhz_);
     if (rx_res != 0) {
       ESP_LOGE(TAG, "Error returning to RX (%d)", rx_res);
     }

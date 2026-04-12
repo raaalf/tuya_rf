@@ -22,14 +22,16 @@
 #define __RADIO_H
 
 #include "cmt2300a.h"
+#include <stdint.h>
 
 #ifdef __cplusplus 
 extern "C" { 
 #endif
 
 int RF_Init(void);
-int StartTx(void);
-int StartRx(void);
+int RF_SetFrequency(uint16_t frequency_mhz);
+int StartTx(uint16_t frequency_mhz);
+int StartRx(uint16_t frequency_mhz);
 
 #ifdef __cplusplus 
 } 

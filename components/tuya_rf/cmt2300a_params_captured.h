@@ -143,6 +143,36 @@ const uint8_t g_cmt2300aFrequencyBank[CMT2300A_FREQUENCY_BANK_SIZE] = {
  /* 0x1F */   0x1C,
 };
 
+/* [Frequency Bank 315.000 MHz]
+ * Derived from the CMT2300A PLL formula with the same 26 MHz crystal and
+ * register layout as the captured 433.920 MHz bank above.
+ */
+const uint8_t g_cmt2300aFrequencyBank315[CMT2300A_FREQUENCY_BANK_SIZE] = {
+ /* 0x18 */   0x48,
+ /* 0x19 */   0xD2,
+ /* 0x1A */   0x1E,
+ /* 0x1B */   0x5C,
+ /* 0x1C */   0x48,
+ /* 0x1D */   0xB1,
+ /* 0x1E */   0x13,
+ /* 0x1F */   0x5B,
+};
+
+/* [Frequency Bank 868.000 MHz]
+ * Taken from a CMOSTEK RFPDK 1.50 export. Only the frequency bank is used here;
+ * data-rate/baseband/TX banks stay with the direct raw configuration.
+ */
+const uint8_t g_cmt2300aFrequencyBank868[CMT2300A_FREQUENCY_BANK_SIZE] = {
+ /* 0x18 */   0x42,
+ /* 0x19 */   0xCF,
+ /* 0x1A */   0xA7,
+ /* 0x1B */   0x8C,
+ /* 0x1C */   0x42,
+ /* 0x1D */   0xC4,
+ /* 0x1E */   0x4E,
+ /* 0x1F */   0x1C,
+};
+
 /* [Data Rate Bank] */
 const uint8_t g_cmt2300aDataRateBank[CMT2300A_DATA_RATE_BANK_SIZE] = {
  /* 0x20 */   0x32, //0x3B,
