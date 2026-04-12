@@ -27,6 +27,7 @@
 
 #define TUYA_RF_TX_PROFILE_868_RFPDK 0
 #define TUYA_RF_TX_PROFILE_868_AHOY_OPENDTU 1
+#define TUYA_RF_AGC_OOK_REGISTER_COUNT 9
 
 #ifdef __cplusplus 
 extern "C" { 
@@ -35,7 +36,9 @@ extern "C" {
 int RF_Init(void);
 int RF_SetFrequency(uint16_t frequency_mhz);
 int StartTx(uint16_t frequency_mhz, uint8_t tx_profile_868, int8_t tx_power_868_dbm);
-int StartRx(uint16_t frequency_mhz, bool dout_mute);
+int StartRx(uint16_t frequency_mhz, bool dout_mute, int8_t rssi_avg_mode,
+            uint16_t agc_ook_register_mask,
+            const uint8_t agc_ook_registers[TUYA_RF_AGC_OOK_REGISTER_COUNT]);
 
 #ifdef __cplusplus 
 } 

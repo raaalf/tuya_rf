@@ -9,6 +9,11 @@ namespace tuya_rf {
 
 static const char *const TAG = "tuya_rf";
 static const char *const RAW_TAG = "tuya_rf.raw";
+static const char *const AGC_OOK_REGISTER_NAMES[TUYA_RF_AGC_OOK_REGISTER_COUNT] = {
+    "agc1", "agc2", "agc3", "agc4", "ook1", "ook2", "ook3", "ook4", "ook5"};
+static const uint8_t AGC_OOK_REGISTER_ADDRS[TUYA_RF_AGC_OOK_REGISTER_COUNT] = {
+    CMT2300A_CUS_AGC1, CMT2300A_CUS_AGC2, CMT2300A_CUS_AGC3, CMT2300A_CUS_AGC4, CMT2300A_CUS_OOK1,
+    CMT2300A_CUS_OOK2, CMT2300A_CUS_OOK3, CMT2300A_CUS_OOK4, CMT2300A_CUS_OOK5};
 
 void IRAM_ATTR HOT RemoteReceiverComponentStore::gpio_intr(RemoteReceiverComponentStore *arg) {
   const uint32_t now = micros();
@@ -70,7 +75,8 @@ void TuyaRfComponent::set_frequency_mhz(uint16_t frequency_mhz) {
   auto &s = this->store_;
   this->RemoteReceiverBase::pin_->detach_interrupt();
 
-  int res = StartRx(this->frequency_mhz_, this->dout_mute_);
+  int res = StartRx(this->frequency_mhz_, this->dout_mute_, this->rssi_avg_mode_,
+                    this->agc_ook_register_mask_, this->agc_ook_registers_);
   if (res != 0) {
     ESP_LOGE(TAG, "Error switching RX frequency to %u MHz (%d)",
              static_cast<unsigned>(this->frequency_mhz_), res);
@@ -100,7 +106,8 @@ void TuyaRfComponent::set_receiver(bool on) {
       memset(buf, 0, s.buffer_size * sizeof(uint32_t));
     }
     if (!this->transmitting_) {
-      int res = StartRx(this->frequency_mhz_, this->dout_mute_);
+      int res = StartRx(this->frequency_mhz_, this->dout_mute_, this->rssi_avg_mode_,
+                        this->agc_ook_register_mask_, this->agc_ook_registers_);
       if (res != 0) {
         ESP_LOGE(TAG, "Error starting RX (%d)", res);
         return;
@@ -188,9 +195,25 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Maximum frame pulses: %u", this->max_pulses_);
   ESP_LOGCONFIG(TAG, "  Maximum frame duration: %u us", this->max_frame_duration_us_);
   ESP_LOGCONFIG(TAG, "  Single-line raw dump: %s", YESNO(this->single_raw_dump_));
+  ESP_LOGCONFIG(TAG, "  Suppressed raw dump: %s", YESNO(this->dump_suppressed_raw_));
   ESP_LOGCONFIG(TAG, "  Accept previous frame on repeated start: %s", YESNO(this->accept_on_restart_));
   ESP_LOGCONFIG(TAG, "  Dedupe accepted frames within: %u us", this->dedupe_window_us_);
   ESP_LOGCONFIG(TAG, "  DOUT mute: %s", YESNO(this->dout_mute_));
+  if (this->rssi_avg_mode_ >= 0) {
+    ESP_LOGCONFIG(TAG, "  RSSI avg mode override: %d", this->rssi_avg_mode_);
+  } else {
+    ESP_LOGCONFIG(TAG, "  RSSI avg mode override: disabled");
+  }
+  if (this->agc_ook_register_mask_ == 0) {
+    ESP_LOGCONFIG(TAG, "  AGC/OOK register overrides: none");
+  } else {
+    for (uint8_t i = 0; i < TUYA_RF_AGC_OOK_REGISTER_COUNT; i++) {
+      if ((this->agc_ook_register_mask_ & (1U << i)) != 0) {
+        ESP_LOGCONFIG(TAG, "  AGC/OOK override %s (0x%02X): 0x%02X", AGC_OOK_REGISTER_NAMES[i],
+                      AGC_OOK_REGISTER_ADDRS[i], this->agc_ook_registers_[i]);
+      }
+    }
+  }
   ESP_LOGCONFIG(TAG, "  Frequency: %u MHz", this->frequency_mhz_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
@@ -208,18 +231,52 @@ void TuyaRfComponent::log_frame_stats_(const char *event, uint32_t pulses, uint3
            this->receive_start_pulse_us_, rssi_dbm);
 }
 
-void TuyaRfComponent::log_raw_frame_() {
+void TuyaRfComponent::log_raw_frame_(const char *prefix) {
   const size_t size = this->RemoteReceiverBase::temp_.size();
   const size_t raw_size = size == 0 ? 0 : size - 1;
   std::string raw;
   raw.reserve(16 + raw_size * 8);
-  raw = "Received Raw: ";
+  raw = prefix;
+  raw += ": ";
   for (size_t i = 0; i < raw_size; i++) {
     if (i != 0) {
       raw += ", ";
     }
     raw += std::to_string(this->RemoteReceiverBase::temp_[i]);
   }
+  ESP_LOGI(RAW_TAG, "%s", raw.c_str());
+}
+
+void TuyaRfComponent::log_buffer_raw_(const char *prefix, uint32_t end_index, uint32_t appended_us) {
+  auto &s = this->store_;
+  uint32_t prev = s.buffer_read_at;
+  uint32_t current = (prev + 1) % s.buffer_size;
+  int32_t multiplier = current % 2 == 0 ? 1 : -1;
+  std::string raw;
+  raw.reserve(16 + this->max_pulses_ * 8);
+  raw = prefix;
+  raw += ": ";
+  bool first = true;
+
+  while (prev != end_index) {
+    const int32_t delta = s.buffer[current] - s.buffer[prev];
+    if (!first) {
+      raw += ", ";
+    }
+    raw += std::to_string(multiplier * delta);
+    first = false;
+    prev = current;
+    current = (current + 1) % s.buffer_size;
+    multiplier *= -1;
+  }
+
+  if (appended_us != 0) {
+    if (!first) {
+      raw += ", ";
+    }
+    raw += std::to_string(multiplier * static_cast<int32_t>(appended_us));
+  }
+
   ESP_LOGI(RAW_TAG, "%s", raw.c_str());
 }
 
@@ -353,7 +410,8 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     }
   } else {
     //Go back to rx mode
-    int rx_res = StartRx(this->frequency_mhz_, this->dout_mute_);
+    int rx_res = StartRx(this->frequency_mhz_, this->dout_mute_, this->rssi_avg_mode_,
+                         this->agc_ook_register_mask_, this->agc_ook_registers_);
     if (rx_res != 0) {
       ESP_LOGE(TAG, "Error returning to RX (%d)", rx_res);
     }
@@ -409,6 +467,9 @@ void TuyaRfComponent::loop() {
         ESP_LOGD(TAG, "RF frame duplicate tail suppressed: duration=%u us exceeds max_frame_duration=%u us, dist=%u, start=%u us, last_gap=%u us, open=%s, tail_rssi=%d dBm, since_last=%u us",
                  frame_duration_us, this->max_frame_duration_us_, dist, this->receive_start_pulse_us_,
                  last_gap_us, open_segment_is_pulse ? "pulse" : "space", rssi_dbm, now - this->last_emit_time_);
+        if (this->dump_suppressed_raw_) {
+          this->log_buffer_raw_("Suppressed Tail Raw", write_at, last_gap_us);
+        }
         this->last_emit_time_ = now;
         receive_started_=false;
         s.buffer_read_at = write_at;
@@ -438,6 +499,9 @@ void TuyaRfComponent::loop() {
       ESP_LOGD(TAG, "RF frame duplicate tail suppressed: buffered pulses=%u exceeds max_pulses=%u, start=%u us, duration=%u us, last_gap=%u us, open=%s, tail_rssi=%d dBm, since_last=%u us",
                dist, this->max_pulses_, this->receive_start_pulse_us_, frame_duration_us, last_gap_us,
                open_segment_is_pulse ? "pulse" : "space", rssi_dbm, now - this->last_emit_time_);
+      if (this->dump_suppressed_raw_) {
+        this->log_buffer_raw_("Suppressed Tail Raw", write_at, last_gap_us);
+      }
       this->last_emit_time_ = now;
       receive_started_=false;
       s.buffer_read_at = write_at;
@@ -661,6 +725,9 @@ void TuyaRfComponent::loop() {
     ESP_LOGD(TAG, "RF frame duplicate suppressed: pulses=%u, start=%u us, end=%s/%u us, duration=%u us, since_last=%u us",
              pulse_count, this->receive_start_pulse_us_, end_reason, end_marker_us, frame_duration_us,
              now - this->last_emit_time_);
+    if (this->dump_suppressed_raw_) {
+      this->log_raw_frame_("Suppressed Raw");
+    }
     this->last_emit_time_ = now;
     return;
   }

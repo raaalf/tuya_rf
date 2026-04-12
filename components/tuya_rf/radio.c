@@ -27,6 +27,17 @@ static uint16_t g_current_frequency_mhz = 433;
 static uint16_t g_current_tx_bank_frequency_mhz = 433;
 static uint8_t g_current_tx_bank_868_profile = TUYA_RF_TX_PROFILE_868_AHOY_OPENDTU;
 static int8_t g_current_tx_power_868_dbm = 13;
+static const uint8_t g_agc_ook_register_addrs[TUYA_RF_AGC_OOK_REGISTER_COUNT] = {
+    CMT2300A_CUS_AGC1,
+    CMT2300A_CUS_AGC2,
+    CMT2300A_CUS_AGC3,
+    CMT2300A_CUS_AGC4,
+    CMT2300A_CUS_OOK1,
+    CMT2300A_CUS_OOK2,
+    CMT2300A_CUS_OOK3,
+    CMT2300A_CUS_OOK4,
+    CMT2300A_CUS_OOK5,
+};
 
 static const uint8_t *RF_GetFrequencyBank(uint16_t frequency_mhz)
 {
@@ -75,6 +86,25 @@ static void RF_SetDoutMute(bool enable)
         CMT2300A_WriteReg(CMT2300A_CUS_SYS10, tmp | CMT2300A_MASK_DOUT_MUTE);
     } else {
         CMT2300A_WriteReg(CMT2300A_CUS_SYS10, tmp & ~CMT2300A_MASK_DOUT_MUTE);
+    }
+}
+
+static void RF_ConfigRxDebugTuning(int8_t rssi_avg_mode, uint16_t agc_ook_register_mask,
+                                   const uint8_t agc_ook_registers[TUYA_RF_AGC_OOK_REGISTER_COUNT])
+{
+    if (rssi_avg_mode >= 0 && rssi_avg_mode <= 7) {
+        uint8_t tmp = CMT2300A_ReadReg(CMT2300A_CUS_SYS11);
+        tmp = (tmp & ~CMT2300A_MASK_RSSI_AVG_MODE) | ((uint8_t) rssi_avg_mode & CMT2300A_MASK_RSSI_AVG_MODE);
+        CMT2300A_WriteReg(CMT2300A_CUS_SYS11, tmp);
+    }
+
+    if (agc_ook_registers == NULL) {
+        return;
+    }
+    for (uint8_t i = 0; i < TUYA_RF_AGC_OOK_REGISTER_COUNT; i++) {
+        if ((agc_ook_register_mask & (1U << i)) != 0) {
+            CMT2300A_WriteReg(g_agc_ook_register_addrs[i], agc_ook_registers[i]);
+        }
     }
 }
 
@@ -199,7 +229,9 @@ int StartTx(uint16_t frequency_mhz, uint8_t tx_profile_868, int8_t tx_power_868_
 }
  
 
-int StartRx(uint16_t frequency_mhz, bool dout_mute) {
+int StartRx(uint16_t frequency_mhz, bool dout_mute, int8_t rssi_avg_mode,
+            uint16_t agc_ook_register_mask,
+            const uint8_t agc_ook_registers[TUYA_RF_AGC_OOK_REGISTER_COUNT]) {
     if (!CMT2300A_GoStby()) {
         return 2;
     }
@@ -210,6 +242,7 @@ int StartRx(uint16_t frequency_mhz, bool dout_mute) {
 
 	CMT2300A_WriteReg(CMT2300A_CUS_SYS2 , 0);
     RF_SetDoutMute(dout_mute);
+    RF_ConfigRxDebugTuning(rssi_avg_mode, agc_ook_register_mask, agc_ook_registers);
 	CMT2300A_EnableTxDin(false);
 	CMT2300A_EnableFifoMerge(true);
 	CMT2300A_WriteReg(CMT2300A_CUS_PKT29, 0x20); 

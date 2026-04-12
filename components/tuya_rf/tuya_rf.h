@@ -69,9 +69,21 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_max_pulses(uint32_t max_pulses) { this->max_pulses_ = max_pulses; }
   void set_max_frame_duration_us(uint32_t max_frame_duration_us) { this->max_frame_duration_us_ = max_frame_duration_us; }
   void set_single_raw_dump(bool single_raw_dump) { this->single_raw_dump_ = single_raw_dump; }
+  void set_dump_suppressed_raw(bool dump_suppressed_raw) { this->dump_suppressed_raw_ = dump_suppressed_raw; }
   void set_accept_on_restart(bool accept_on_restart) { this->accept_on_restart_ = accept_on_restart; }
   void set_dedupe_window_us(uint32_t dedupe_window_us) { this->dedupe_window_us_ = dedupe_window_us; }
   void set_dout_mute(bool dout_mute) { this->dout_mute_ = dout_mute; }
+  void set_rssi_avg_mode(int8_t rssi_avg_mode) {
+    if (rssi_avg_mode >= 0 && rssi_avg_mode <= 7) {
+      this->rssi_avg_mode_ = rssi_avg_mode;
+    }
+  }
+  void set_agc_ook_register(uint8_t offset, uint8_t value) {
+    if (offset < 9) {
+      this->agc_ook_register_mask_ |= 1U << offset;
+      this->agc_ook_registers_[offset] = value;
+    }
+  }
   void set_frequency_mhz(uint16_t frequency_mhz);
   void set_tx_profile_868(uint8_t tx_profile_868) { this->tx_profile_868_ = tx_profile_868 > 1 ? 1 : tx_profile_868; }
   void set_tx_power_868_dbm(int8_t tx_power_868_dbm) { this->tx_power_868_dbm_ = tx_power_868_dbm == 20 ? 20 : 13; }
@@ -95,7 +107,8 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void await_target_time_();
   void set_receiver(bool on);
   void log_frame_stats_(const char *event, uint32_t pulses, uint32_t duration_us);
-  void log_raw_frame_();
+  void log_raw_frame_(const char *prefix = "Received Raw");
+  void log_buffer_raw_(const char *prefix, uint32_t end_index, uint32_t appended_us = 0);
   uint32_t candidate_pulse_count_(uint32_t candidate_end) const;
   uint32_t target_time_;
 #if defined(USE_LIBRETINY)
@@ -120,9 +133,13 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint32_t max_pulses_{200};
   uint32_t max_frame_duration_us_{250000};
   bool single_raw_dump_{false};
+  bool dump_suppressed_raw_{false};
   bool accept_on_restart_{true};
   uint32_t dedupe_window_us_{200000};
   bool dout_mute_{false};
+  int8_t rssi_avg_mode_{-1};
+  uint16_t agc_ook_register_mask_{0};
+  uint8_t agc_ook_registers_[9]{};
   uint16_t frequency_mhz_{433};
   uint16_t next_transmit_frequency_mhz_{0};
   uint8_t tx_profile_868_{1};

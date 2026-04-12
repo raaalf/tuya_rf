@@ -37,6 +37,9 @@ CONF_ACCEPT_ON_RESTART = "accept_on_restart"
 CONF_DEDUPE_WINDOW = "dedupe_window"
 CONF_DOUT_MUTE = "dout_mute"
 CONF_FREQUENCY = "frequency"
+CONF_RSSI_AVG_MODE = "rssi_avg_mode"
+CONF_AGC_OOK_REGISTERS = "agc_ook_registers"
+CONF_DUMP_SUPPRESSED_RAW = "dump_suppressed_raw"
 
 from esphome.core import CORE, TimePeriod
 
@@ -90,6 +93,53 @@ def validate_frequency(value):
     if frequency not in (315, 433, 868):
         raise cv.Invalid("frequency must be 315, 433, or 868 MHz")
     return frequency
+
+def validate_uint8(value):
+    if isinstance(value, str):
+        try:
+            value = int(value.strip(), 0)
+        except ValueError as exc:
+            raise cv.Invalid("value must be an 8-bit integer, for example 0x4B") from exc
+    else:
+        value = cv.int_(value)
+    if value < 0 or value > 0xFF:
+        raise cv.Invalid("value must be between 0x00 and 0xFF")
+    return value
+
+def validate_rssi_avg_mode(value):
+    value = validate_uint8(value)
+    if value > 7:
+        raise cv.Invalid("rssi_avg_mode must be between 0 and 7")
+    return value
+
+AGC_OOK_REGISTER_KEYS = {
+    "agc1": 0,
+    "agc2": 1,
+    "agc3": 2,
+    "agc4": 3,
+    "ook1": 4,
+    "ook2": 5,
+    "ook3": 6,
+    "ook4": 7,
+    "ook5": 8,
+}
+
+AGC_OOK_REGISTER_SCHEMA = cv.Schema(
+    {
+        cv.Optional(name): validate_uint8
+        for name in AGC_OOK_REGISTER_KEYS
+    }
+)
+
+def validate_agc_ook_registers(value):
+    if isinstance(value, list):
+        if len(value) != len(AGC_OOK_REGISTER_KEYS):
+            raise cv.Invalid("agc_ook_registers list must contain exactly 9 values: agc1..agc4, ook1..ook5")
+        return {
+            name: validate_uint8(register_value)
+            for name, register_value in zip(AGC_OOK_REGISTER_KEYS, value)
+        }
+    return AGC_OOK_REGISTER_SCHEMA(value)
 
 TUYA_RF_ACTION_SCHEMA = cv.Schema(
     {
@@ -251,6 +301,9 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
             ),
             cv.Optional(CONF_DOUT_MUTE, default=False): cv.boolean,
             cv.Optional(CONF_FREQUENCY, default=433): validate_frequency,
+            cv.Optional(CONF_RSSI_AVG_MODE): validate_rssi_avg_mode,
+            cv.Optional(CONF_AGC_OOK_REGISTERS): validate_agc_ook_registers,
+            cv.Optional(CONF_DUMP_SUPPRESSED_RAW, default=False): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA)
 )
@@ -321,4 +374,11 @@ async def to_code(config):
     cg.add(var.set_dedupe_window_us(config[CONF_DEDUPE_WINDOW]))
     cg.add(var.set_dout_mute(config[CONF_DOUT_MUTE]))
     cg.add(var.set_frequency_mhz(config[CONF_FREQUENCY]))
+    cg.add(var.set_dump_suppressed_raw(config[CONF_DUMP_SUPPRESSED_RAW]))
+    if CONF_RSSI_AVG_MODE in config:
+        cg.add(var.set_rssi_avg_mode(config[CONF_RSSI_AVG_MODE]))
+    if CONF_AGC_OOK_REGISTERS in config:
+        for name, offset in AGC_OOK_REGISTER_KEYS.items():
+            if name in config[CONF_AGC_OOK_REGISTERS]:
+                cg.add(var.set_agc_ook_register(offset, config[CONF_AGC_OOK_REGISTERS][name]))
     validate_pulses(config)
