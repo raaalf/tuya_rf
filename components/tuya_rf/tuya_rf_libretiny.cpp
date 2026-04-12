@@ -266,7 +266,9 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   this->next_transmit_frequency_mhz_ = 0;
   ESP_LOGD(TAG, "Transmit frequency: %u MHz", frequency_mhz);
   if (frequency_mhz == 868) {
-    ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank: Ahoy/OpenDTU 13 dBm profile");
+    ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank: %s, tx_power=%d dBm",
+             this->tx_profile_868_ == TUYA_RF_TX_PROFILE_868_RFPDK ? "RFPDK profile" : "Ahoy/OpenDTU profile",
+             this->tx_power_868_dbm_);
   }
 
   const auto &data = this->RemoteTransmitterBase::temp_.get_data();
@@ -282,7 +284,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   ESP_LOGD(TAG, "TX request: repeat=%u wait=%u us pulses=%u estimated_waveform=%u us",
            send_times, send_wait, static_cast<unsigned>(data.size()), estimated_waveform_us);
 
-  int res=StartTx(frequency_mhz);
+  int res=StartTx(frequency_mhz, this->tx_profile_868_, this->tx_power_868_dbm_);
   switch(res) {
     case 0:
       //ESP_LOGD(TAG,"StartTx ok");

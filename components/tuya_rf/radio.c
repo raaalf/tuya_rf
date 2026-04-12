@@ -25,6 +25,8 @@
 
 static uint16_t g_current_frequency_mhz = 433;
 static uint16_t g_current_tx_bank_frequency_mhz = 433;
+static uint8_t g_current_tx_bank_868_profile = TUYA_RF_TX_PROFILE_868_AHOY_OPENDTU;
+static int8_t g_current_tx_power_868_dbm = 13;
 
 static const uint8_t *RF_GetFrequencyBank(uint16_t frequency_mhz)
 {
@@ -56,21 +58,64 @@ static int RF_ConfigFrequencyBank(uint16_t frequency_mhz)
     return 0;
 }
 
-static int RF_ConfigTxBank(uint16_t frequency_mhz)
+static void RF_SetTxPowerDouble(bool enable)
+{
+    uint8_t tmp = CMT2300A_ReadReg(CMT2300A_CUS_CMT4);
+    if (enable) {
+        CMT2300A_WriteReg(CMT2300A_CUS_CMT4, tmp | 0x01);
+    } else {
+        CMT2300A_WriteReg(CMT2300A_CUS_CMT4, tmp & 0xFE);
+    }
+}
+
+static void RF_ConfigTxPower868(int8_t tx_power_868_dbm)
+{
+    if (tx_power_868_dbm == 20) {
+        RF_SetTxPowerDouble(true);
+        CMT2300A_WriteReg(CMT2300A_CUS_TX5, 0x07);
+        CMT2300A_WriteReg(CMT2300A_CUS_TX8, 0x8A);
+        CMT2300A_WriteReg(CMT2300A_CUS_TX9, 0x18);
+        CMT2300A_WriteReg(CMT2300A_CUS_TX10, 0x3F);
+    } else {
+        RF_SetTxPowerDouble(false);
+    }
+}
+
+static int RF_ConfigTxBank(uint16_t frequency_mhz, uint8_t tx_profile_868, int8_t tx_power_868_dbm)
 {
     const uint8_t *tx_bank = g_cmt2300aTxBank;
     uint16_t tx_bank_frequency_mhz = 433;
+    uint8_t tx_bank_868_profile = TUYA_RF_TX_PROFILE_868_AHOY_OPENDTU;
+    int8_t tx_power_dbm = 13;
+
     if (frequency_mhz == 868) {
-        tx_bank = g_cmt2300aTxBank868;
+        if (tx_profile_868 == TUYA_RF_TX_PROFILE_868_RFPDK) {
+            tx_bank = g_cmt2300aTxBank868Rfpdk;
+            tx_bank_868_profile = TUYA_RF_TX_PROFILE_868_RFPDK;
+        } else {
+            tx_bank = g_cmt2300aTxBank868AhoyOpenDtu;
+            tx_bank_868_profile = TUYA_RF_TX_PROFILE_868_AHOY_OPENDTU;
+        }
         tx_bank_frequency_mhz = 868;
+        tx_power_dbm = tx_power_868_dbm == 20 ? 20 : 13;
     }
-    if (g_current_tx_bank_frequency_mhz == tx_bank_frequency_mhz) {
+
+    if (g_current_tx_bank_frequency_mhz == tx_bank_frequency_mhz &&
+        (tx_bank_frequency_mhz != 868 ||
+         (g_current_tx_bank_868_profile == tx_bank_868_profile && g_current_tx_power_868_dbm == tx_power_dbm))) {
         return 0;
     }
     if (!CMT2300A_ConfigRegBank(CMT2300A_TX_BANK_ADDR, tx_bank, CMT2300A_TX_BANK_SIZE)) {
         return 1;
     }
+    if (tx_bank_frequency_mhz == 868) {
+        RF_ConfigTxPower868(tx_power_dbm);
+    } else {
+        RF_SetTxPowerDouble(false);
+    }
     g_current_tx_bank_frequency_mhz = tx_bank_frequency_mhz;
+    g_current_tx_bank_868_profile = tx_bank_868_profile;
+    g_current_tx_power_868_dbm = tx_power_dbm;
     return 0;
 }
 
@@ -98,6 +143,8 @@ int RF_Init(void)
     CMT2300A_ConfigRegBank(CMT2300A_TX_BANK_ADDR        , g_cmt2300aTxBank        , CMT2300A_TX_BANK_SIZE        );
     g_current_frequency_mhz = 433;
     g_current_tx_bank_frequency_mhz = 433;
+    g_current_tx_bank_868_profile = TUYA_RF_TX_PROFILE_868_AHOY_OPENDTU;
+    g_current_tx_power_868_dbm = 13;
     
     // xosc_aac_code[2:0] = 2
     tmp = (~0x07) & CMT2300A_ReadReg(CMT2300A_CUS_CMT10);
@@ -114,7 +161,7 @@ int RF_Init(void)
     }
 }
 
-int StartTx(uint16_t frequency_mhz) {
+int StartTx(uint16_t frequency_mhz, uint8_t tx_profile_868, int8_t tx_power_868_dbm) {
     if (!CMT2300A_GoStby()) {
         return 2;
     }
@@ -122,7 +169,7 @@ int StartTx(uint16_t frequency_mhz) {
     if (freq_res != 0) {
         return freq_res;
     }
-    int tx_bank_res = RF_ConfigTxBank(frequency_mhz);
+    int tx_bank_res = RF_ConfigTxBank(frequency_mhz, tx_profile_868, tx_power_868_dbm);
     if (tx_bank_res != 0) {
         return tx_bank_res;
     }
