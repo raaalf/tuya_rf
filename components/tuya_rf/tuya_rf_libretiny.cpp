@@ -48,6 +48,47 @@ void TuyaRfComponent::turn_off_receiver() {
    }
 }
 
+void TuyaRfComponent::set_frequency_mhz(uint16_t frequency_mhz) {
+  if (frequency_mhz != 315 && frequency_mhz != 433 && frequency_mhz != 868) {
+    ESP_LOGW(TAG, "Unsupported frequency %u MHz", static_cast<unsigned>(frequency_mhz));
+    return;
+  }
+
+  if (this->frequency_mhz_ == frequency_mhz) {
+    return;
+  }
+
+  ESP_LOGD(TAG, "RF frequency changed: %u MHz -> %u MHz",
+           static_cast<unsigned>(this->frequency_mhz_), static_cast<unsigned>(frequency_mhz));
+  this->frequency_mhz_ = frequency_mhz;
+  this->last_emit_time_ = 0;
+
+  if (!this->setup_done_ || this->receiver_disabled_ || this->transmitting_) {
+    return;
+  }
+
+  auto &s = this->store_;
+  this->RemoteReceiverBase::pin_->detach_interrupt();
+
+  int res = StartRx(this->frequency_mhz_);
+  if (res != 0) {
+    ESP_LOGE(TAG, "Error switching RX frequency to %u MHz (%d)",
+             static_cast<unsigned>(this->frequency_mhz_), res);
+    return;
+  }
+
+  if (!this->RemoteReceiverBase::pin_->digital_read()) {
+    s.buffer_write_at = s.buffer_read_at = 1;
+  } else {
+    s.buffer_write_at = s.buffer_read_at = 0;
+  }
+  this->old_write_at_ = s.buffer_read_at;
+  this->receive_started_ = false;
+  this->receive_start_time_ = 0;
+  this->receive_start_pulse_us_ = 0;
+  this->RemoteReceiverBase::pin_->attach_interrupt(RemoteReceiverComponentStore::gpio_intr, &this->store_, gpio::INTERRUPT_ANY_EDGE);
+}
+
 void TuyaRfComponent::set_receiver(bool on) {
   if (on) {
     ESP_LOGD(TAG, "starting receiver");
@@ -117,6 +158,7 @@ void TuyaRfComponent::setup() {
     ESP_LOGE(TAG, "CMT2300A initialization failed!");
   }
 
+  this->setup_done_ = true;
   this->set_receiver(!this->receiver_disabled_);
 }
 

@@ -71,7 +71,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_single_raw_dump(bool single_raw_dump) { this->single_raw_dump_ = single_raw_dump; }
   void set_accept_on_restart(bool accept_on_restart) { this->accept_on_restart_ = accept_on_restart; }
   void set_dedupe_window_us(uint32_t dedupe_window_us) { this->dedupe_window_us_ = dedupe_window_us; }
-  void set_frequency_mhz(uint16_t frequency_mhz) { this->frequency_mhz_ = frequency_mhz; }
+  void set_frequency_mhz(uint16_t frequency_mhz);
   void set_next_transmit_frequency_mhz(uint16_t frequency_mhz) { this->next_transmit_frequency_mhz_ = frequency_mhz; }
   void turn_on_receiver();
   void turn_off_receiver();
@@ -122,6 +122,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   uint16_t frequency_mhz_{433};
   uint16_t next_transmit_frequency_mhz_{0};
 
+  bool setup_done_{false};
   bool transmitting_{false};
   bool receive_started_{false};
   uint32_t old_write_at_{0};
