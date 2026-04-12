@@ -71,6 +71,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   void set_single_raw_dump(bool single_raw_dump) { this->single_raw_dump_ = single_raw_dump; }
   void set_accept_on_restart(bool accept_on_restart) { this->accept_on_restart_ = accept_on_restart; }
   void set_dedupe_window_us(uint32_t dedupe_window_us) { this->dedupe_window_us_ = dedupe_window_us; }
+  void set_dout_mute(bool dout_mute) { this->dout_mute_ = dout_mute; }
   void set_frequency_mhz(uint16_t frequency_mhz);
   void set_tx_profile_868(uint8_t tx_profile_868) { this->tx_profile_868_ = tx_profile_868 > 1 ? 1 : tx_profile_868; }
   void set_tx_power_868_dbm(int8_t tx_power_868_dbm) { this->tx_power_868_dbm_ = tx_power_868_dbm == 20 ? 20 : 13; }
@@ -121,6 +122,7 @@ class TuyaRfComponent : public remote_base::RemoteTransmitterBase,
   bool single_raw_dump_{false};
   bool accept_on_restart_{true};
   uint32_t dedupe_window_us_{200000};
+  bool dout_mute_{false};
   uint16_t frequency_mhz_{433};
   uint16_t next_transmit_frequency_mhz_{0};
   uint8_t tx_profile_868_{1};

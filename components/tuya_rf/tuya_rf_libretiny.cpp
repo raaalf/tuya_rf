@@ -70,7 +70,7 @@ void TuyaRfComponent::set_frequency_mhz(uint16_t frequency_mhz) {
   auto &s = this->store_;
   this->RemoteReceiverBase::pin_->detach_interrupt();
 
-  int res = StartRx(this->frequency_mhz_);
+  int res = StartRx(this->frequency_mhz_, this->dout_mute_);
   if (res != 0) {
     ESP_LOGE(TAG, "Error switching RX frequency to %u MHz (%d)",
              static_cast<unsigned>(this->frequency_mhz_), res);
@@ -100,7 +100,7 @@ void TuyaRfComponent::set_receiver(bool on) {
       memset(buf, 0, s.buffer_size * sizeof(uint32_t));
     }
     if (!this->transmitting_) {
-      int res = StartRx(this->frequency_mhz_);
+      int res = StartRx(this->frequency_mhz_, this->dout_mute_);
       if (res != 0) {
         ESP_LOGE(TAG, "Error starting RX (%d)", res);
         return;
@@ -190,6 +190,7 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Single-line raw dump: %s", YESNO(this->single_raw_dump_));
   ESP_LOGCONFIG(TAG, "  Accept previous frame on repeated start: %s", YESNO(this->accept_on_restart_));
   ESP_LOGCONFIG(TAG, "  Dedupe accepted frames within: %u us", this->dedupe_window_us_);
+  ESP_LOGCONFIG(TAG, "  DOUT mute: %s", YESNO(this->dout_mute_));
   ESP_LOGCONFIG(TAG, "  Frequency: %u MHz", this->frequency_mhz_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
@@ -352,7 +353,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     }
   } else {
     //Go back to rx mode
-    int rx_res = StartRx(this->frequency_mhz_);
+    int rx_res = StartRx(this->frequency_mhz_, this->dout_mute_);
     if (rx_res != 0) {
       ESP_LOGE(TAG, "Error returning to RX (%d)", rx_res);
     }

@@ -68,6 +68,16 @@ static void RF_SetTxPowerDouble(bool enable)
     }
 }
 
+static void RF_SetDoutMute(bool enable)
+{
+    uint8_t tmp = CMT2300A_ReadReg(CMT2300A_CUS_SYS10);
+    if (enable) {
+        CMT2300A_WriteReg(CMT2300A_CUS_SYS10, tmp | CMT2300A_MASK_DOUT_MUTE);
+    } else {
+        CMT2300A_WriteReg(CMT2300A_CUS_SYS10, tmp & ~CMT2300A_MASK_DOUT_MUTE);
+    }
+}
+
 static void RF_ConfigTxPower868(int8_t tx_power_868_dbm)
 {
     if (tx_power_868_dbm == 20) {
@@ -189,7 +199,7 @@ int StartTx(uint16_t frequency_mhz, uint8_t tx_profile_868, int8_t tx_power_868_
 }
  
 
-int StartRx(uint16_t frequency_mhz) {
+int StartRx(uint16_t frequency_mhz, bool dout_mute) {
     if (!CMT2300A_GoStby()) {
         return 2;
     }
@@ -199,6 +209,7 @@ int StartRx(uint16_t frequency_mhz) {
     }
 
 	CMT2300A_WriteReg(CMT2300A_CUS_SYS2 , 0);
+    RF_SetDoutMute(dout_mute);
 	CMT2300A_EnableTxDin(false);
 	CMT2300A_EnableFifoMerge(true);
 	CMT2300A_WriteReg(CMT2300A_CUS_PKT29, 0x20); 

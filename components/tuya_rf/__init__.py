@@ -35,6 +35,7 @@ CONF_DATA = "data"
 CONF_SINGLE_RAW_DUMP = "single_raw_dump"
 CONF_ACCEPT_ON_RESTART = "accept_on_restart"
 CONF_DEDUPE_WINDOW = "dedupe_window"
+CONF_DOUT_MUTE = "dout_mute"
 CONF_FREQUENCY = "frequency"
 
 from esphome.core import CORE, TimePeriod
@@ -248,6 +249,7 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
                 cv.positive_time_period_microseconds,
                 cv.Range(max=TimePeriod(microseconds=4294967295)),
             ),
+            cv.Optional(CONF_DOUT_MUTE, default=False): cv.boolean,
             cv.Optional(CONF_FREQUENCY, default=433): validate_frequency,
         }
     ).extend(cv.COMPONENT_SCHEMA)
@@ -317,5 +319,6 @@ async def to_code(config):
     cg.add(var.set_queue_delay_ms(config[CONF_QUEUE_DELAY]))
     cg.add(var.set_accept_on_restart(config[CONF_ACCEPT_ON_RESTART]))
     cg.add(var.set_dedupe_window_us(config[CONF_DEDUPE_WINDOW]))
+    cg.add(var.set_dout_mute(config[CONF_DOUT_MUTE]))
     cg.add(var.set_frequency_mhz(config[CONF_FREQUENCY]))
     validate_pulses(config)

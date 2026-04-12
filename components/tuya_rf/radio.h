@@ -22,6 +22,7 @@
 #define __RADIO_H
 
 #include "cmt2300a.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 #define TUYA_RF_TX_PROFILE_868_RFPDK 0
@@ -34,7 +35,7 @@ extern "C" {
 int RF_Init(void);
 int RF_SetFrequency(uint16_t frequency_mhz);
 int StartTx(uint16_t frequency_mhz, uint8_t tx_profile_868, int8_t tx_power_868_dbm);
-int StartRx(uint16_t frequency_mhz);
+int StartRx(uint16_t frequency_mhz, bool dout_mute);
 
 #ifdef __cplusplus 
 } 
