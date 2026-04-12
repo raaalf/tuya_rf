@@ -253,6 +253,8 @@ void TuyaRfComponent::space_(uint32_t usec) {
 
 void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send_wait) {
   ESP_LOGD(TAG, "Sending remote code...");
+  const uint32_t tx_requested_ms = millis();
+  const uint32_t tx_requested_us = micros();
 
   this->transmitting_=true;
   this->RemoteTransmitterBase::pin_->digital_write(false);
@@ -266,28 +268,44 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   if (frequency_mhz == 868) {
     ESP_LOGD(TAG, "Transmit uses 868 MHz TX bank");
   }
+
+  const auto &data = this->RemoteTransmitterBase::temp_.get_data();
+  uint32_t estimated_waveform_us = (4700 - 2200) + 2000;
+  for (uint32_t i = 0; i < send_times; i++) {
+    for (int32_t item : data) {
+      estimated_waveform_us += item > 0 ? uint32_t(item) : uint32_t(-item);
+    }
+    if (i + 1 < send_times && send_wait > 0) {
+      estimated_waveform_us += send_wait;
+    }
+  }
+  ESP_LOGD(TAG, "TX request: repeat=%u wait=%u us pulses=%u estimated_waveform=%u us",
+           send_times, send_wait, static_cast<unsigned>(data.size()), estimated_waveform_us);
+
   int res=StartTx(frequency_mhz);
   switch(res) {
     case 0:
       //ESP_LOGD(TAG,"StartTx ok");
       break;
     case 1:
-      ESP_LOGE(TAG,"Error configuring RF registers");
+      ESP_LOGE(TAG,"Error configuring RF registers after %u us", micros() - tx_requested_us);
       this->transmitting_=false;
       return;
     case 2:
-      ESP_LOGE(TAG,"Error go tx");
+      ESP_LOGE(TAG,"Error go tx after %u us", micros() - tx_requested_us);
       this->transmitting_=false;
       return;
     case 3:
-      ESP_LOGE(TAG,"Unsupported frequency %u MHz", frequency_mhz);
+      ESP_LOGE(TAG,"Unsupported frequency %u MHz after %u us", frequency_mhz, micros() - tx_requested_us);
       this->transmitting_=false;
       return;
     default:
-      ESP_LOGE(TAG,"Unknown error %d",res);
+      ESP_LOGE(TAG,"Unknown error %d after %u us",res, micros() - tx_requested_us);
       this->transmitting_=false;
       return;
   }
+  const uint32_t radio_ready_us = micros();
+  ESP_LOGD(TAG, "TX radio ready after %u us", radio_ready_us - tx_requested_us);
 
   this->RemoteTransmitterBase::pin_->digital_write(true);
   this->target_time_ = 0;
@@ -300,7 +318,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
 
     this->space_(4700-2200);
     for (uint32_t i = 0; i < send_times; i++) {
-      for (int32_t item : this->RemoteTransmitterBase::temp_.get_data()) {
+      for (int32_t item : data) {
         if (item > 0) {
           const auto length = uint32_t(item);
           this->mark_(length);
@@ -317,6 +335,9 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     this->await_target_time_();
   }  // InterruptLock released — timers work again for mode switching below
 
+  const uint32_t waveform_done_us = micros();
+  ESP_LOGD(TAG, "TX waveform done after %u us", waveform_done_us - radio_ready_us);
+
   this->transmitting_=false;
   if (this->receiver_disabled_) {
     if(CMT2300A_GoStby()) {
@@ -331,6 +352,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
       ESP_LOGE(TAG, "Error returning to RX (%d)", rx_res);
     }
   }
+  ESP_LOGD(TAG, "TX complete after %u ms", millis() - tx_requested_ms);
 }
 
 /*
