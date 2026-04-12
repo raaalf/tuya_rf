@@ -7,15 +7,7 @@ namespace tuya_rf {
 
 static const char *const TAG = "tuya_rf";
 
-bool TuyaRfComponent::queue_transmit(const std::vector<int32_t> &data, uint16_t frequency_mhz) {
-  if (frequency_mhz == 0) {
-    frequency_mhz = this->frequency_mhz_;
-  }
-  if (frequency_mhz != 315 && frequency_mhz != 433 && frequency_mhz != 868) {
-    ESP_LOGW(TAG, "Unsupported transmit frequency: %u MHz", frequency_mhz);
-    return false;
-  }
-
+bool TuyaRfComponent::queue_transmit(const std::vector<int32_t> &data) {
   // Check if queue is full
   if (this->transmit_queue_.size() >= this->queue_max_size_) {
     ESP_LOGW(TAG, "Transmit queue full (size: %u), dropping command", this->transmit_queue_.size());
@@ -26,10 +18,9 @@ bool TuyaRfComponent::queue_transmit(const std::vector<int32_t> &data, uint16_t 
   TransmitQueueItem item;
   item.data = data;
   item.queued_at = millis();
-  item.frequency_mhz = frequency_mhz;
   this->transmit_queue_.push_back(item);
 
-  ESP_LOGD(TAG, "Command queued (queue size: %u, frequency=%u MHz)", this->transmit_queue_.size(), frequency_mhz);
+  ESP_LOGD(TAG, "Command queued (queue size: %u)", this->transmit_queue_.size());
   return true;
 }
 
@@ -64,9 +55,7 @@ void TuyaRfComponent::process_transmit_queue() {
 
   // Transmit the data
   this->RemoteTransmitterBase::temp_.set_data(item.data);
-  this->next_transmit_frequency_mhz_ = item.frequency_mhz;
   this->send_(1, 0);  // send_times=1, send_wait=0
-  this->next_transmit_frequency_mhz_ = 0;
 
   // Update last transmit time
   this->last_transmit_time_ = millis();

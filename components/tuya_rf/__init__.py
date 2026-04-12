@@ -79,6 +79,7 @@ TuyaRfComponent = tuya_rf_ns.class_(
 
 TurnOffReceiverAction = tuya_rf_ns.class_("TurnOffReceiverAction", automation.Action)
 TurnOnReceiverAction = tuya_rf_ns.class_("TurnOnReceiverAction", automation.Action)
+SetTransmitFrequencyAction = tuya_rf_ns.class_("SetTransmitFrequencyAction", automation.Action)
 QueueTransmitAction = tuya_rf_ns.class_("QueueTransmitAction", automation.Action)
 
 def validate_frequency(value):
@@ -99,7 +100,13 @@ TUYA_RF_QUEUE_TRANSMIT_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_RECEIVER_ID): cv.use_id(TuyaRfComponent),
         cv.Required(CONF_DATA): cv.templatable(cv.ensure_list(cv.int_)),
-        cv.Optional(CONF_FREQUENCY): validate_frequency,
+    }
+)
+
+TUYA_RF_SET_TRANSMIT_FREQUENCY_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ID): cv.use_id(TuyaRfComponent),
+        cv.Required(CONF_FREQUENCY): validate_frequency,
     }
 )
 
@@ -137,8 +144,18 @@ async def tuya_rf_queue_transmit_to_code(config, action_id, template_arg, args):
         config[CONF_DATA], args, cg.std_vector.template(cg.int32)
     )
     cg.add(var.set_data(template_))
-    if CONF_FREQUENCY in config:
-        cg.add(var.set_frequency(config[CONF_FREQUENCY]))
+    return var
+
+@automation.register_action(
+    "tuya_rf.set_transmit_frequency",
+    SetTransmitFrequencyAction,
+    TUYA_RF_SET_TRANSMIT_FREQUENCY_SCHEMA,
+    synchronous=True,
+)
+async def tuya_rf_set_transmit_frequency_to_code(config, action_id, template_arg, args):
+    paren = await cg.get_variable(config[CONF_ID])
+    var = cg.new_Pvariable(action_id, template_arg, paren)
+    cg.add(var.set_frequency(config[CONF_FREQUENCY]))
     return var
 
 

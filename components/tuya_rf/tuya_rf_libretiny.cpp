@@ -219,6 +219,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   // polls AutoSwitchStatus which needs working timers (millis/micros).
   // With interrupts disabled, the timeout loop behaved unpredictably.
   const uint16_t frequency_mhz = this->next_transmit_frequency_mhz_ != 0 ? this->next_transmit_frequency_mhz_ : this->frequency_mhz_;
+  this->next_transmit_frequency_mhz_ = 0;
   ESP_LOGD(TAG, "Transmit frequency: %u MHz", frequency_mhz);
   int res=StartTx(frequency_mhz);
   switch(res) {
