@@ -163,39 +163,43 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   ESP_LOGD(TAG, "Sending remote code...");
 
   this->transmitting_=true;
-  this->RemoteTransmitterBase::pin_->digital_write(false);
 
-  // StartTx runs WITHOUT InterruptLock — it does SPI communication and
-  // polls AutoSwitchStatus which needs working timers (millis/micros).
-  // With interrupts disabled, the timeout loop behaved unpredictably.
-  int res=StartTx();
-  switch(res) {
-    case 0:
-      //ESP_LOGD(TAG,"StartTx ok");
-      break;
-    case 1:
-      ESP_LOGE(TAG,"Error Rf_Init");
-      this->transmitting_=false;
-      return;
-    case 2:
-      ESP_LOGE(TAG,"Error go tx");
-      this->transmitting_=false;
-      return;
-    default:
-      ESP_LOGE(TAG,"Unknown error %d",res);
-      this->transmitting_=false;
-      return;
+  // Detach RX interrupt for the entire TX cycle:
+  // - Prevents ISR jitter on bit-banged SPI during StartTx()/StartRx()
+  // - Prevents ring buffer from filling with noise during CMT2300A mode
+  //   switching (GPIO2 outputs INT2 instead of demodulated data in TX mode,
+  //   causing many false edges on the RX pin)
+  if (!this->receiver_disabled_) {
+    this->RemoteReceiverBase::pin_->detach_interrupt();
   }
 
+  this->RemoteTransmitterBase::pin_->digital_write(false);
+
+  int res=StartTx();
+  if (res != 0) {
+    switch(res) {
+      case 1: ESP_LOGE(TAG,"Error Rf_Init"); break;
+      case 2: ESP_LOGE(TAG,"Error go tx"); break;
+      default: ESP_LOGE(TAG,"Unknown error %d",res); break;
+    }
+    this->transmitting_=false;
+    if (!this->receiver_disabled_) {
+      this->RemoteReceiverBase::pin_->attach_interrupt(RemoteReceiverComponentStore::gpio_intr, &this->store_, gpio::INTERRUPT_ANY_EDGE);
+    }
+    return;
+  }
+
+  // Set pin HIGH (space/carrier-off) immediately after entering TX mode
+  // to minimize spurious carrier burst between StartTx() and signal start
   this->RemoteTransmitterBase::pin_->digital_write(true);
-  this->target_time_ = 0;
 
   {
-    // InterruptLock ONLY for timing-critical RF bit-bang.
-    // mark_() and space_() use busy-loop microsecond timing that
-    // must not be disrupted by ISRs.
+    // InterruptLock protects timing-critical bit-bang.
+    // delayMicroseconds()/micros() use hardware counters and work
+    // correctly under InterruptLock on BK7231N.
     InterruptLock lock;
 
+    this->target_time_ = 0;
     this->space_(4700-2200);
     for (uint32_t i = 0; i < send_times; i++) {
       for (int32_t item : this->RemoteTransmitterBase::temp_.get_data()) {
@@ -213,7 +217,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     }
     this->space_(2000);
     this->await_target_time_();
-  }  // InterruptLock released — timers work again for mode switching below
+  }
 
   this->transmitting_=false;
   if (this->receiver_disabled_) {
@@ -225,6 +229,18 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
   } else {
     //Go back to rx mode
     StartRx();
+    // Re-attach RX interrupt with clean buffer state.
+    // Buffer data from before TX is stale (timestamps are old);
+    // any data collected during TX was noise from INT2 edges.
+    auto &s = this->store_;
+    if (!this->RemoteReceiverBase::pin_->digital_read()) {
+      s.buffer_write_at = s.buffer_read_at = 1;
+    } else {
+      s.buffer_write_at = s.buffer_read_at = 0;
+    }
+    this->old_write_at_ = s.buffer_read_at;
+    this->receive_started_ = false;
+    this->RemoteReceiverBase::pin_->attach_interrupt(RemoteReceiverComponentStore::gpio_intr, &this->store_, gpio::INTERRUPT_ANY_EDGE);
   }
 }
 
