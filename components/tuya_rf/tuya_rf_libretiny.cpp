@@ -127,6 +127,7 @@ void TuyaRfComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Filter out pulses shorter than: %u us", this->filter_us_);
   ESP_LOGCONFIG(TAG, "  Signal start with a pulse between %u and %u us", this->start_pulse_min_us_, this->start_pulse_max_us_);
   ESP_LOGCONFIG(TAG, "  Signal is done after a pulse of %u us", this->end_pulse_us_);
+  ESP_LOGCONFIG(TAG, "  Leading space: %u us", this->leading_space_us_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Max Size: %u", this->queue_max_size_);
   ESP_LOGCONFIG(TAG, "  Transmit Queue Delay: %u ms", this->queue_delay_ms_);
   if (this->receiver_disabled_) {
@@ -141,7 +142,11 @@ void TuyaRfComponent::await_target_time_() {
   if (this->target_time_ == 0) {
     this->target_time_ = current_time;
   } else {
-    while (this->target_time_ > micros()) {
+    // Signed subtraction handles uint32_t wraparound correctly:
+    // when (target_time_ - micros()) interpreted as int32_t is positive,
+    // we still need to wait. Plain `target_time_ > micros()` would fail
+    // when target_time_ wraps but micros() hasn't yet, or vice versa.
+    while ((int32_t)(this->target_time_ - micros()) > 0) {
       // busy loop that ensures micros is constantly called
     }
   }
@@ -200,7 +205,7 @@ void IRAM_ATTR TuyaRfComponent::send_internal(uint32_t send_times, uint32_t send
     InterruptLock lock;
 
     this->target_time_ = 0;
-    this->space_(4700-2200);
+    this->space_(this->leading_space_us_);
     for (uint32_t i = 0; i < send_times; i++) {
       for (int32_t item : this->RemoteTransmitterBase::temp_.get_data()) {
         if (item > 0) {

@@ -26,6 +26,7 @@ CONF_FCSB_PIN = "fcsb_pin"
 CONF_RECEIVER_ID = "receiver_id"
 CONF_QUEUE_MAX_SIZE = "queue_max_size"
 CONF_QUEUE_DELAY = "queue_delay"
+CONF_LEADING_SPACE = "leading_space"
 CONF_DATA = "data"
 
 from esphome.core import CORE, TimePeriod
@@ -164,6 +165,10 @@ CONFIG_SCHEMA = remote_base.validate_triggers(
                 cv.positive_time_period_microseconds,
                 cv.Range(max=TimePeriod(microseconds=4294967295)),
             ),
+            cv.Optional(CONF_LEADING_SPACE, default="2500us"): cv.All(
+                cv.positive_time_period_microseconds,
+                cv.Range(max=TimePeriod(microseconds=4294967295)),
+            ),
             cv.Optional(CONF_QUEUE_MAX_SIZE, default=10): cv.All(
                 cv.uint32_t,
                 cv.Range(min=1, max=100),
@@ -214,6 +219,7 @@ async def to_code(config):
     cg.add(var.set_start_pulse_min_us(config[CONF_START_PULSE_MIN]))
     cg.add(var.set_start_pulse_max_us(config[CONF_START_PULSE_MAX]))
     cg.add(var.set_end_pulse_us(config[CONF_END_PULSE]))
+    cg.add(var.set_leading_space_us(config[CONF_LEADING_SPACE]))
     cg.add(var.set_queue_max_size(config[CONF_QUEUE_MAX_SIZE]))
     cg.add(var.set_queue_delay_ms(config[CONF_QUEUE_DELAY]))
     validate_pulses(config)
